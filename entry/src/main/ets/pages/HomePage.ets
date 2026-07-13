@@ -1,6 +1,7 @@
 import { PrayerViewModel } from '../viewmodels/PrayerViewModel'
 import { DeityView } from '../components/DeityView'
 import { TipModal } from '../components/TipModal'
+import { HistoryPanel } from '../components/HistoryPanel'
 import { PrayerPhase } from '../model/PrayerTypes'
 import { router } from '@kit.ArkUI'
 
@@ -86,6 +87,16 @@ struct HomePage {
         })
         .position({ x: '85%', y: '82%' })
         .onClick(() => this.tipDialogController.open())
+
+      // 历史面板（左滑呼出）
+      if (this.showHistory) {
+        HistoryPanel({
+          records: this.viewModel.history,
+          onClose: () => {
+            this.showHistory = false
+          }
+        })
+      }
     }
     .width('100%')
     .height('100%')

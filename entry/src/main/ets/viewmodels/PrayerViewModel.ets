@@ -29,8 +29,9 @@ export class PrayerViewModel {
     this.todayDeity = DeityRotator.getTodayDeity()
   }
 
-  async initialize(context: Context, engine: BlessingEngine): Promise<void> {
-    this.blessingEngine = engine
+  async initialize(context: Context): Promise<void> {
+    this.blessingEngine = new BlessingEngine()
+    await this.blessingEngine.loadBlessings(context)
     this.dataPrefs = await preferences.getPreferences(context, PREF_NAME)
     await this.loadPrefs()
   }

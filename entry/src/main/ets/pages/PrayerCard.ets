@@ -1,7 +1,8 @@
 import { PrayerViewModel } from '../viewmodels/PrayerViewModel'
 import { DeityView } from '../components/DeityView'
 import { ParticleCanvas, ParticleType } from '../components/ParticleCanvas'
-import { AnimController, AnimStage } from '../engine/AnimController'
+import { AnimController } from '../engine/AnimController'
+import { AnimStage } from '../model/PrayerTypes'
 import { router } from '@kit.ArkUI'
 import { vibrator } from '@kit.SensorServiceKit'
 

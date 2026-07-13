@@ -1,12 +1,9 @@
 import { UIAbility, Want, AbilityConstant } from '@kit.AbilityKit'
 import { window } from '@kit.ArkUI'
-import { BlessingEngine } from '../engine/BlessingEngine'
 
 export default class EntryAbility extends UIAbility {
-  private blessingEngine: BlessingEngine = new BlessingEngine()
-
-  async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): Promise<void> {
-    await this.blessingEngine.loadBlessings(this.context)
+  onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    // App initialization
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
