@@ -1,0 +1,12 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "麻神祈福"
+    },
+    {
+      "name": "vibrate_reason",
+      "value": "提供磕头祈福时的触感反馈"
+    }
+  ]
+}
