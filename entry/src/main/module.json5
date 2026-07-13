@@ -1,0 +1,26 @@
+{
+  "module": {
+    "name": "entry",
+    "type": "entry",
+    "abilities": [
+      {
+        "name": "EntryAbility",
+        "srcEntry": "./ets/entryability/EntryAbility.ets",
+        "launchType": "singleton",
+        "orientation": "portrait",
+        "supportWindowMode": ["fullscreen"],
+        "backgroundModes": ["audioPlayback"]
+      }
+    ],
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.VIBRATE",
+        "reason": "$string:vibrate_reason",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      }
+    ]
+  }
+}
