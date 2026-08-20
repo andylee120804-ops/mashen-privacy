@@ -116,12 +116,60 @@ cloud/
    - 客户端不直连 Cloud DB（`CloudService.ets` 只用 `cloudFunction.call` 中转），
      故 World/Authenticated/Creator 实际不会被触发，设保守值即可，主要供审核看数据安全。
 
-5. **部署云函数**：AGC 控制台 → 云函数 → 依次上传 3 个 zip：
-   - 运行时 Node.js 18，内存 256MB，超时 30s
-   - 触发器：HTTP POST（开启 AGC Auth）
-   - 函数名必须 kebab-case，与客户端 `cloudFunction.call({ name })` 一致
+5. **部署云函数**：AGC 控制台 → 构建 → 云函数 → 创建函数，依次上传 3 个 zip。
+   每个 zip 已含 `handler.js`（导出 `myHandler`）+ `shared/` + `node_modules/`
+   （含 `@hw-agconnect/cloud-server`）+ `agc-credential.json`，正斜杠路径，可直接上传。
+
+   **3 个函数的对应关系**（函数名必须与客户端 `cloudFunction.call({ name })` 逐字一致）：
+
+   | 上传的 zip | 控制台函数名 | 客户端调用 | 作用 |
+   |-----------|-------------|-----------|------|
+   | `cloud/update-prayer-count/update-prayer-count.zip` | `update-prayer-count` | [CloudService.ets:57](../entry/src/main/ets/service/CloudService.ets#L57) | 祈福后上报次数 |
+   | `cloud/get-leaderboard/get-leaderboard.zip` | `get-leaderboard` | [CloudService.ets:77](../entry/src/main/ets/service/CloudService.ets#L77) | 查日/周/总榜 + 今日香火人数 |
+   | `cloud/wish-wall/wish-wall.zip` | `wish-wall` | [CloudService.ets:124](../entry/src/main/ets/service/CloudService.ets#L124) | 心愿墙列表/发布/还愿 |
+
+   **每个函数的创建参数**：
+   - 函数名：照上表填（kebab-case，小写连字符）
+   - 描述：随意
+   - 代码上传方式：上传 .zip 包 → 选对应 zip
+   - 运行时：**Node.js 18**
+   - 内存：256 MB
+   - 超时：30 秒
+   - 实例数：单实例（默认 1）
+   - 执行超时同上 30s
+
+   **触发器配置**（创建函数后进入该函数 → 触发器 → 新建）：
+   - 触发器类型：**HTTP 触发器**
+   - 标识符：随意（如函数名）
+   - 方法：**POST**
+   - 鉴权：**开启 AGC Auth**（客户端用 cloudFunction.call 自动带鉴权）
+   - 创建后复制得到的 HTTP URL 备用（客户端 SDK 调用走 name，一般不用手填 URL）
+
+   **验证函数可用**（控制台「云函数 → 对应函数 → 测试」）：
+   - `get-leaderboard` 测试入参：`{ "type": "total", "__uid": "test123" }`
+     期望返回：`{ "code": 0, "message": "success", "data": [] }`（空榜正常）
+   - `update-prayer-count` 测试入参：
+     `{ "nickname": "测***", "kowtowCount": 3, "streak": 1, "__uid": "test123" }`
+     期望返回：`{ "code": 0, ... "data": { "updated": true } }`，且 Cloud DB
+     `Leaderboard` 表多一条 `userId=test123` 记录。
+   - 报 401 `client token auth failed` → 凭证问题（见下「凭证注意」）。
+   - 报 `3037003 primary key missing` → 对象类型未导入或字段名不符。
 
 6. **客户端权限**：已在 `module.json5` 声明 `ohos.permission.INTERNET`。
+
+### 凭证注意（`products: []` 为空的情况）
+
+本地验证（第 2 步脚本）可能出现 `ret.code: 0` + `access_token 已获取` 但 `products: []`
+为空。这说明凭证**拿到了 token、是有效的 API Client 凭证**（不是项目凭证——项目凭证会
+报 `203886599 the type of clientId not match`，这里没有）。但 `products` 空意味着创建
+该 API Client 时**可能没勾选关联 Cloud DB 产品**。
+
+- **先按上面部署试**：很多情况下 token 能拿到、Cloud DB 也能访问，`products` 空只是响应
+  格式没回显产品列表。
+- **若云函数测试报 401 `client token auth failed`** 或写 Cloud DB 失败：回 AGC 控制台 →
+  用户中心 → 凭证管理 → 重建 API Client，**务必勾选关联 Cloud DB 产品**，下载新凭证替换
+  `cloud/agc-credential.json` 后重新 `node cloud/deploy.cjs` 打包并重新上传 zip。
+- `agc-credential.json` 已 gitignore，不会提交；每次换凭证都要重新打包 3 个 zip。
 
 ## 客户端调用约定
 
