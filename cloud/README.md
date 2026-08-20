@@ -92,27 +92,29 @@ cloud/
 
 4. **创建 Cloud DB**：AGC 控制台 → Cloud DB → 创建存储区 `MashenZone` →
    对象类型页「**导入对象类型**」，上传本仓库的 `cloud/agc-clouddb-object-types.json`
-   （已按 AGC 真实导出格式编排，与各 handler upsert 字段逐一核对一致）。
+   （已按 AGC 真实导出格式编排：`schemaVersion` + `objectTypes` + `permissions` 三段，
+   字段与各 handler upsert 逐一核对，权限块避免导入时报「权限为空」）。
    也可按上表手建，但务必保证字段名/类型与之一致，否则 upsert 静默失败。
 
-   **关于「权限为空」**：导入后对象类型的权限列显示空是正常的——权限（ACL）
-   不在 schema JSON 里，需在控制台单独配。**本项目权限为空不影响云函数读写**：
-   客户端不直连 Cloud DB（`CloudService.ets` 只用 `cloudFunction.call` 中转），
-   所有读写都在云函数里用服务端 SDK + API Client 凭证（应用管理员身份）完成，
-   不受对象类型 ACL 约束。ACL 只约束客户端 SDK 直连，本项目无直连代码。
+   **导入报「权限为空」怎么办**：早期版本的 JSON 缺 `permissions` 块，AGC 控制台
+   导入时会拦在「权限为空」。当前版本已补齐顶层 `permissions` 数组（每个对象类型 4 种
+   role：World / Authenticated / Creator / Administrator，rights 为 Read / Upsert / Delete），
+   直接导入即可，不再需要导入后手配权限。
 
-   **建议为审核配置权限**（空权限可能被审核质疑数据安全）：
-   对象类型列表 → 点 `Leaderboard`/`Wish` → 权限设置，按下表配每种操作：
+   **权限设计**（已写入 JSON，导入即生效）：
 
-   | 对象类型 | 查询 | 插入 | 更新 | 删除 |
-   |----------|------|------|------|------|
-   | Leaderboard | 所有用户 | 已认证用户 | 已认证用户 | 不允许 |
-   | Wish | 所有用户 | 已认证用户 | 已认证用户 | 不允许 |
+   | 对象类型 | World（所有用户） | Authenticated（已认证） | Creator（创建者） | Administrator（管理员/云函数） |
+   |----------|-------------------|------------------------|-------------------|-------------------------------|
+   | Leaderboard | Read | Read | Read, Upsert | Read, Upsert, Delete |
+   | Wish | Read | Read | Read, Upsert, Delete | Read, Upsert, Delete |
 
-   - 查询设「所有用户」：排行榜/心愿墙本就是公开展示内容。
-   - 写入设「已认证用户」：更规范；云函数用 API Client 凭证不受此限制，仍可正常写。
-   - 还愿的「仅本人」校验已在云函数层做（`wish.userId !== uid` → FORBIDDEN），
-     不依赖 ACL。
+   - World/Authenticated 只读：排行榜、心愿墙是公开展示内容，读对所有人开放。
+   - Creator 可改自己的记录（Wish 含 Delete，发布者可删自己心愿；还愿仅本人由云函数
+     `wish.userId !== uid` → FORBIDDEN 兜底，不依赖 ACL）。
+   - **Administrator 必须全权限**：云函数用服务端 SDK + API Client 凭证以应用管理员
+     身份读写，不受 ACL 限制，但权限表要给它留 Read/Upsert/Delete 才规范。
+   - 客户端不直连 Cloud DB（`CloudService.ets` 只用 `cloudFunction.call` 中转），
+     故 World/Authenticated/Creator 实际不会被触发，设保守值即可，主要供审核看数据安全。
 
 5. **部署云函数**：AGC 控制台 → 云函数 → 依次上传 3 个 zip：
    - 运行时 Node.js 18，内存 256MB，超时 30s
