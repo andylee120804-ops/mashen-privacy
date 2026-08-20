@@ -69,10 +69,12 @@ cloud/
 
 ## 部署步骤
 
-1. **准备凭证**：AGC 控制台 → 用户中心 → 凭证管理 → 创建 **API Client**
-   （务必勾选关联 Cloud DB 产品），下载 `api-client-project.json`，重命名为
-   `agc-credential.json` 放到 `cloud/` 根目录。
-   - ⚠️ 不能用「项目设置 > 常规 > 项目凭证」，其 `products:[]` 无 Cloud DB 权限。
+1. **准备凭证**：AGC 控制台 → 用户中心 → 凭证管理 → 创建 **API Client**，
+   下载 `api-client-project.json`，重命名为 `agc-credential.json` 放到 `cloud/` 根目录。
+   - 当前控制台创建 API Client 时**已无「关联 Cloud DB 产品」勾选项**（旧版有，现版移除），
+     Cloud DB 访问权随项目开通 Cloud DB 自动授予，无需手动勾选。
+   - ⚠️ 不能用「项目设置 > 常规 > 项目凭证」：那是项目凭证，类型不对，调用会报
+     `203886599 the type of clientId not match`。必须用用户中心创建的 API Client。
 
 2. **本地验证凭证**（不用部署即可测）：
    ```bash
@@ -157,19 +159,24 @@ cloud/
 
 6. **客户端权限**：已在 `module.json5` 声明 `ohos.permission.INTERNET`。
 
-### 凭证注意（`products: []` 为空的情况）
+### 凭证说明（`products: []` 为空是正常的）
 
-本地验证（第 2 步脚本）可能出现 `ret.code: 0` + `access_token 已获取` 但 `products: []`
-为空。这说明凭证**拿到了 token、是有效的 API Client 凭证**（不是项目凭证——项目凭证会
-报 `203886599 the type of clientId not match`，这里没有）。但 `products` 空意味着创建
-该 API Client 时**可能没勾选关联 Cloud DB 产品**。
+本地验证（第 2 步脚本）结果：`ret.code: 0` + `access_token 已获取` + `products: []`。
+这是**正常的、凭证有效**的表现：
 
-- **先按上面部署试**：很多情况下 token 能拿到、Cloud DB 也能访问，`products` 空只是响应
-  格式没回显产品列表。
-- **若云函数测试报 401 `client token auth failed`** 或写 Cloud DB 失败：回 AGC 控制台 →
-  用户中心 → 凭证管理 → 重建 API Client，**务必勾选关联 Cloud DB 产品**，下载新凭证替换
-  `cloud/agc-credential.json` 后重新 `node cloud/deploy.cjs` 打包并重新上传 zip。
-- `agc-credential.json` 已 gitignore，不会提交；每次换凭证都要重新打包 3 个 zip。
+- `code: 0` + 拿到 access_token = 凭证是有效的 **API Client 凭证**（不是项目凭证——
+  项目凭证会报 `203886599 the type of clientId not match`，这里没有，说明凭证类型对）。
+- `products: []` 为空**不代表缺权限**：当前 AGC 控制台创建 API Client 时已没有「关联
+  Cloud DB 产品」勾选项（旧版有，现版移除了）。Cloud DB 访问权是**项目级授予**的——
+  项目里开通了 Cloud DB、建了 `MashenZone` 存储区，项目内的 API Client 即自动有访问权，
+  `products` 只是 token 响应里不再回填的遗留字段。
+- 所以**直接按上面步骤部署即可**，不用找产品勾选项。
+
+**若云函数测试真报 401 `client token auth failed`**（实测拿到 token 一般不会）：
+确认 `agc-credential.json` 已打进 zip（第 3 步打包后 `zip` 内应含该文件），且
+`shared/db.js` 的 `createInstance(path, 'mashen-cloud-db')` 用了唯一实例名。仍 401 再
+回用户中心重建 API Client 换新凭证，替换 `cloud/agc-credential.json` 后重新
+`node cloud/deploy.cjs` 打包并重新上传 zip。`agc-credential.json` 已 gitignore，不会提交。
 
 ## 客户端调用约定
 
