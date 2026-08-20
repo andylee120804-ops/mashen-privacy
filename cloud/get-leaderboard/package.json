@@ -1,0 +1,9 @@
+{
+  "name": "get-leaderboard",
+  "version": "1.0.0",
+  "description": "查询祈福排行榜（日/周/总）与今日香火人数",
+  "main": "handler.js",
+  "dependencies": {
+    "@hw-agconnect/cloud-server": "^1.0.5"
+  }
+}

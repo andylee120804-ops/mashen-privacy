@@ -1,0 +1,4 @@
+# 云函数运行时产物，不纳入版本控制
+node_modules/
+*.zip
+agc-credential.json

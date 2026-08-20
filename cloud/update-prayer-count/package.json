@@ -1,0 +1,9 @@
+{
+  "name": "update-prayer-count",
+  "version": "1.0.0",
+  "description": "上报祈福次数到 Cloud DB Leaderboard 表",
+  "main": "handler.js",
+  "dependencies": {
+    "@hw-agconnect/cloud-server": "^1.0.5"
+  }
+}
