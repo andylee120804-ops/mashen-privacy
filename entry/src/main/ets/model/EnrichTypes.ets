@@ -61,8 +61,16 @@ export enum LeaderboardType {
   TOTAL = 'total'
 }
 
+/** 成就徽章静态定义（不含运行时解锁状态） */
+export interface BadgeDef {
+  badgeId: string        // 徽章 ID
+  name: string           // 徽章名称
+  icon: string           // 图标
+  desc: string           // 条件描述
+}
+
 /** 成就徽章定义 */
-export const BADGE_DEFS: Omit<Achievement, 'unlocked' | 'unlockDate' | 'progress'>[] = [
+export const BADGE_DEFS: BadgeDef[] = [
   { badgeId: 'first_prayer', name: '初入牌局', icon: '🀄', desc: '完成首次祈福' },
   { badgeId: 'kowtow_100', name: '百拜成金', icon: '🏅', desc: '累计磕头 100 次' },
   { badgeId: 'streak_7', name: '虔诚信徒', icon: '🔥', desc: '连续签到 7 天' },
@@ -82,8 +90,16 @@ export interface AlmanacData {
   incenseCount: number    // 今日香火人数
 }
 
+/** 黄历静态条目（不含每日变化的香火人数） */
+export interface AlmanacEntry {
+  direction: string       // 吉位
+  luckySuit: string       // 幸运花色（条/筒/万）
+  avoid: string           // 忌
+  suitable: string        // 宜
+}
+
 /** 黄历 30 天轮换表 */
-export const ALMANAC_TABLE: Omit<AlmanacData, 'incenseCount'>[] = [
+export const ALMANAC_TABLE: AlmanacEntry[] = [
   { direction: '坐东朝西', luckySuit: '🀇 条子', avoid: '心浮气躁', suitable: '稳扎稳打' },
   { direction: '坐南朝北', luckySuit: '🀈 筒子', avoid: '贪大胡', suitable: '见好就收' },
   { direction: '坐西朝东', luckySuit: '🀉 万子', avoid: '犹豫不决', suitable: '当机立断' },

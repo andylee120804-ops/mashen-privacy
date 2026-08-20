@@ -1,9 +1,22 @@
 // entry/src/main/ets/viewmodels/EnrichViewModel.ets
 import {
-  CheckinState, GameRecord, Achievement, BADGE_DEFS, AlmanacData, ALMANAC_TABLE, CHECKIN_TILES
+  CheckinState, GameRecord, Achievement, BadgeDef, BADGE_DEFS, AlmanacData, ALMANAC_TABLE, CHECKIN_TILES
 } from '../model/EnrichTypes'
 import { PrayerViewModel } from './PrayerViewModel'
 import { preferences } from '@kit.ArkData'
+
+/** 胜率统计 */
+interface WinRate {
+  wins: number
+  total: number
+  rate: number
+}
+
+/** 单个财神的胜负统计 */
+interface DeityStats {
+  wins: number
+  total: number
+}
 
 const PREF_NAME = 'mashen_enrich_prefs'
 const KEY_CHECKIN = 'checkin'
@@ -19,7 +32,17 @@ const KEY_WISH_FULFILLED_COUNT = 'wishFulfilledCount'
 export class EnrichViewModel {
   checkin: CheckinState = { lastDate: '', streak: 0, totalIncense: 0 }
   gameRecords: GameRecord[] = []
-  achievements: Achievement[] = BADGE_DEFS.map(b => ({ ...b, unlocked: false, unlockDate: '', progress: 0 }))
+  achievements: Achievement[] = BADGE_DEFS.map((b: BadgeDef): Achievement => {
+    return {
+      badgeId: b.badgeId,
+      name: b.name,
+      icon: b.icon,
+      desc: b.desc,
+      unlocked: false,
+      unlockDate: '',
+      progress: 0
+    }
+  })
   diaryNotes: Record<string, string> = {}
   totalKowtow: number = 0
   bowedDeities: Set<number> = new Set()
@@ -94,7 +117,7 @@ export class EnrichViewModel {
     }
   }
 
-  getWinRate(): { wins: number, total: number, rate: number } {
+  getWinRate(): WinRate {
     let wins = 0
     let total = 0
     for (const r of this.gameRecords) {
@@ -103,11 +126,16 @@ export class EnrichViewModel {
         if (g.result === '+') wins++
       }
     }
-    return { wins, total, rate: total > 0 ? Math.round(wins / total * 100) : 0 }
+    const stats: WinRate = {
+      wins: wins,
+      total: total,
+      rate: total > 0 ? Math.round(wins / total * 100) : 0
+    }
+    return stats
   }
 
   getBestDeity(): string {
-    const stats: Record<number, { wins: number, total: number }> = {}
+    const stats: Record<number, DeityStats> = {}
     for (const r of this.gameRecords) {
       if (!stats[r.deityId]) stats[r.deityId] = { wins: 0, total: 0 }
       for (const g of r.games) {
@@ -158,7 +186,15 @@ export class EnrichViewModel {
     for (let i = 0; i < this.achievements.length; i++) {
       const a = this.achievements[i]
       if (!a.unlocked && checks[a.badgeId]) {
-        this.achievements[i] = { ...a, unlocked: true, unlockDate: today, progress: 1 }
+        this.achievements[i] = {
+          badgeId: a.badgeId,
+          name: a.name,
+          icon: a.icon,
+          desc: a.desc,
+          unlocked: true,
+          unlockDate: today,
+          progress: 1
+        }
       } else if (!a.unlocked) {
         let progress = 0
         switch (a.badgeId) {
@@ -171,7 +207,15 @@ export class EnrichViewModel {
           case 'wish_3': progress = Math.min(this.wishFulfilledCount / 3, 1); break
           case 'top_daily': progress = this.wasTopDaily ? 1 : 0; break
         }
-        this.achievements[i] = { ...a, progress }
+        this.achievements[i] = {
+          badgeId: a.badgeId,
+          name: a.name,
+          icon: a.icon,
+          desc: a.desc,
+          unlocked: a.unlocked,
+          unlockDate: a.unlockDate,
+          progress: progress
+        }
       }
     }
     this.persistAchievements()
@@ -180,7 +224,14 @@ export class EnrichViewModel {
   getAlmanac(): AlmanacData {
     const dayOfYear = this.getDayOfYear()
     const entry = ALMANAC_TABLE[dayOfYear % ALMANAC_TABLE.length]
-    return { ...entry, incenseCount: 0 }
+    const almanac: AlmanacData = {
+      direction: entry.direction,
+      luckySuit: entry.luckySuit,
+      avoid: entry.avoid,
+      suitable: entry.suitable,
+      incenseCount: 0
+    }
+    return almanac
   }
 
   onKowtowDone(count: number, deityId: number): void {
@@ -231,20 +282,25 @@ export class EnrichViewModel {
       this.gameRecords = JSON.parse(recordsStr)
 
       const achievementsStr = await this.dataPrefs.get(KEY_ACHIEVEMENTS, '{}') as string
-      const savedAchievements = JSON.parse(achievementsStr)
-      this.achievements = BADGE_DEFS.map(b => ({
-        ...b,
-        unlocked: savedAchievements[b.badgeId] ? true : false,
-        unlockDate: savedAchievements[b.badgeId] || '',
-        progress: savedAchievements[b.badgeId] ? 1 : 0
-      }))
+      const savedAchievements: Record<string, string> = JSON.parse(achievementsStr)
+      this.achievements = BADGE_DEFS.map((b: BadgeDef): Achievement => {
+        return {
+          badgeId: b.badgeId,
+          name: b.name,
+          icon: b.icon,
+          desc: b.desc,
+          unlocked: savedAchievements[b.badgeId] ? true : false,
+          unlockDate: savedAchievements[b.badgeId] || '',
+          progress: savedAchievements[b.badgeId] ? 1 : 0
+        }
+      })
 
       const notesStr = await this.dataPrefs.get(KEY_DIARY_NOTES, '{}') as string
       this.diaryNotes = JSON.parse(notesStr)
 
       this.totalKowtow = await this.dataPrefs.get(KEY_TOTAL_KOWTOW, 0) as number
 
-      const deitiesArr = JSON.parse(await this.dataPrefs.get(KEY_BOWED_DEITIES, '[]') as string)
+      const deitiesArr: number[] = JSON.parse(await this.dataPrefs.get(KEY_BOWED_DEITIES, '[]') as string)
       this.bowedDeities = new Set(deitiesArr)
 
       this.wasTopDaily = await this.dataPrefs.get(KEY_WAS_TOP_DAILY, false) as boolean
@@ -286,7 +342,11 @@ export class EnrichViewModel {
   private async persistKowtow(): Promise<void> {
     if (!this.dataPrefs) return
     await this.dataPrefs.put(KEY_TOTAL_KOWTOW, this.totalKowtow)
-    await this.dataPrefs.put(KEY_BOWED_DEITIES, JSON.stringify([...this.bowedDeities]))
+    const bowedList: number[] = []
+    this.bowedDeities.forEach((id: number) => {
+      bowedList.push(id)
+    })
+    await this.dataPrefs.put(KEY_BOWED_DEITIES, JSON.stringify(bowedList))
     await this.dataPrefs.flush()
   }
 
