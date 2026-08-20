@@ -1,0 +1,9 @@
+{
+  "name": "mashen-cloud-deploy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "云函数打包工具依赖（不部署）",
+  "devDependencies": {
+    "adm-zip": "^0.5.16"
+  }
+}

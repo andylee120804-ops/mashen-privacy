@@ -2,3 +2,7 @@
 node_modules/
 *.zip
 agc-credential.json
+# deploy.cjs 复制进各函数目录的 shared/ 与 npm install 产物
+# （源在 cloud/shared/ 与各 func 的 package.json，勿提交副本）
+/*/shared/
+/*/package-lock.json

@@ -5,32 +5,35 @@
 //   node cloud/deploy.cjs update-prayer-count  # 只打包指定函数
 // 产物：cloud/<func>/<func>.zip，上传到 AGC 控制台云函数。
 // 注意：agc-credential.json 需手动放置到 cloud/ 根目录（API Client 凭证，见 README）。
+// ⚠️ 必须用正斜杠路径打包（adm-zip），AGC 运行时是 Linux，
+//    PowerShell Compress-Archive 产生的反斜杠路径会导致 Cannot find module handler.js。
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const AdmZip = require('adm-zip');
 
 const CLOUD_DIR = __dirname;
 const SHARED_DIR = path.join(CLOUD_DIR, 'shared');
 const FUNCTIONS = ['update-prayer-count', 'get-leaderboard', 'wish-wall'];
 
-// 优先用项目 node 的 zip 命令；Windows 无 zip 时回退到 PowerShell Compress-Archive（注意路径用正斜杠）
-function makeZip(srcDir, zipPath) {
-  // 临时方案：用 Node 内置无原生 zip，依赖系统 zip 或 PowerShell
-  try {
-    execSync(`zip -rj "${zipPath}" .`, { cwd: srcDir, stdio: 'ignore' });
-    return true;
-  } catch (e) {
-    // 回退 PowerShell（需保持目录结构，不能用 -j）
-    const psSrc = srcDir.replace(/\\/g, '/');
-    const psZip = zipPath.replace(/\\/g, '/');
-    try {
-      execSync(`powershell -NoProfile -Command "Compress-Archive -Path '${psSrc}/*' -DestinationPath '${psZip}' -Force"`, { stdio: 'ignore' });
-      return true;
-    } catch (e2) {
-      console.error(`  [zip] failed for ${srcDir}: ${e2.message}`);
-      return false;
+/** 递归收集目录下所有文件，返回正斜杠相对路径 */
+function collectFiles(rootDir) {
+  const results = [];
+  function walk(dir, relPrefix) {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const absPath = path.join(dir, entry.name);
+      const relPath = relPrefix ? relPrefix + '/' + entry.name : entry.name;
+      if (entry.isDirectory()) {
+        // 跳过 .bin 之外的隐藏目录无碍；node_modules 全部打包
+        walk(absPath, relPath);
+      } else {
+        results.push({ absPath: absPath, relPath: relPath });
+      }
     }
   }
+  walk(rootDir, '');
+  return results;
 }
 
 function packageFunction(name) {
@@ -70,14 +73,24 @@ function packageFunction(name) {
     return false;
   }
 
-  // 4. 打 zip
+  // 4. 用 adm-zip 打包（正斜杠路径）
   const zipPath = path.join(funcDir, `${name}.zip`);
   if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
-  if (makeZip(funcDir, zipPath)) {
-    console.log(`  ✓ 产出 ${path.relative(CLOUD_DIR, zipPath)}`);
-    return true;
+
+  const zip = new AdmZip();
+  const files = collectFiles(funcDir);
+  let added = 0;
+  for (const f of files) {
+    // 排除产物 zip 自身
+    if (f.relPath === `${name}.zip`) continue;
+    // adm-zip addLocalFile 用系统路径，但 entry 名会带反斜杠，故用 addFile 显式指定正斜杠名
+    const data = fs.readFileSync(f.absPath);
+    zip.addFile(f.relPath, data);
+    added++;
   }
-  return false;
+  zip.writeZip(zipPath);
+  console.log(`  ✓ 产出 ${path.relative(CLOUD_DIR, zipPath)}（${added} 个文件，正斜杠路径）`);
+  return true;
 }
 
 const targets = process.argv.slice(2).length ? process.argv.slice(2) : FUNCTIONS;
