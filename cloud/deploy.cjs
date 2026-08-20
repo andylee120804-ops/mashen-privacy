@@ -89,8 +89,47 @@ function packageFunction(name) {
     added++;
   }
   zip.writeZip(zipPath);
-  console.log(`  ✓ 产出 ${path.relative(CLOUD_DIR, zipPath)}（${added} 个文件，正斜杠路径）`);
+  // 5. 修复 adm-zip 在 Windows 上的 hostOS 权限位 bug：
+  //    adm-zip 把中央目录头的 versionMadeBy hostOS 标为 10(Windows NTFS)，
+  //    Linux 解压器因此忽略 externalAttr 高 16 位的 Unix 权限位（0o100644），
+  //    文件以无权限解压 → AGC 运行时报 EACCES: permission denied, open handler.js。
+  //    把 hostOS patch 成 3(Unix) 后，0o644 权限位被识别，文件可读。
+  const patched = patchUnixHostOS(zipPath);
+  console.log(`  ✓ 产出 ${path.relative(CLOUD_DIR, zipPath)}（${added} 个文件，正斜杠路径，${patched} 条 hostOS→Unix）`);
   return true;
+}
+
+/**
+ * 把 zip 中央目录头里每条 entry 的 hostOS 从 Windows(10) 改成 Unix(3)。
+ * 通过解析尾部 EOCD 定位中央目录起始，再逐条按长度字段遍历（不靠特征扫描，避免误伤压缩数据）。
+ * 中央目录头结构：offset+4,5 = versionMadeBy（低字节版本，高字节 hostOS）。
+ */
+function patchUnixHostOS(zipPath) {
+  const buf = fs.readFileSync(zipPath);
+  const EOCD_SIG = 0x06054b50; // "PK\x05\x06"
+  // EOCD 至少 22 字节，从尾部往前找（带 zip 注释时最多 65557）
+  const minScan = Math.max(0, buf.length - 65557);
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= minScan; i--) {
+    if (buf.readUInt32LE(i) === EOCD_SIG) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('patchUnixHostOS: EOCD 记录未找到，不是有效 zip');
+  const totalEntries = buf.readUInt16LE(eocd + 10);
+  const cdOffset = buf.readUInt32LE(eocd + 16);
+
+  const CD_SIG = 0x02014b50; // "PK\x01\x02"
+  let off = cdOffset;
+  let patched = 0;
+  for (let n = 0; n < totalEntries; n++) {
+    if (off + 46 > buf.length || buf.readUInt32LE(off) !== CD_SIG) break;
+    if (buf[off + 5] !== 0x03) { buf[off + 5] = 0x03; patched++; } // 高字节 hostOS → Unix(3)
+    const fnLen = buf.readUInt16LE(off + 28);
+    const extraLen = buf.readUInt16LE(off + 30);
+    const commentLen = buf.readUInt16LE(off + 32);
+    off += 46 + fnLen + extraLen + commentLen;
+  }
+  fs.writeFileSync(zipPath, buf);
+  return patched;
 }
 
 const targets = process.argv.slice(2).length ? process.argv.slice(2) : FUNCTIONS;

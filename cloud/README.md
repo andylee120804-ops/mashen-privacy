@@ -91,6 +91,11 @@ cloud/
    node cloud/deploy.cjs          # 打包全部 3 个
    # 或：node cloud/deploy.cjs update-prayer-count
    ```
+   `deploy.cjs` 用 adm-zip 打正斜杠路径，并在写完 zip 后用 `patchUnixHostOS()`
+   把中央目录头的 `hostOS` 从 Windows(10) patch 成 Unix(3)——否则 AGC Linux 运行时
+   会忽略条目的 Unix 权限位，`handler.js` 以无权限解压，报
+   `180000 EACCES: permission denied, open '/dcache/layer/func/handler.js'`。
+   这是 adm-zip 在 Windows 上打包的已知坑，patch 后文件以 0o644 可读权限解压。
 
 4. **创建 Cloud DB**：AGC 控制台 → Cloud DB → 创建存储区 `MashenZone` →
    对象类型页「**导入对象类型**」，上传本仓库的 `cloud/agc-clouddb-object-types.json`
