@@ -8,11 +8,29 @@ var TYPE = 'Leaderboard';
 
 async function handler(body, event, context, log) {
   var uid = body.__uid;
+  // 控制台测试 / 不同触发路径兜底：event.request 可能直接含 __uid
+  if (!uid && event && event.request && typeof event.request === 'object') {
+    uid = event.request.__uid;
+  }
   var nickname = body.nickname || '麻***';
   var kowtowCount = body.kowtowCount || 0;
   var streak = body.streak || 0;
 
-  if (!uid) return fail(CODE.UNAUTHORIZED, 'uid required');
+  if (!uid) {
+    // 诊断：定位控制台测试入参实际落在 event 的哪个字段
+    var reqObj = (event && event.request && typeof event.request === 'object') ? event.request : null;
+    var diag = {
+      bodyKeys: body ? Object.keys(body) : [],
+      bodyUid: body ? body.__uid || null : null,
+      eventKeys: event ? Object.keys(event) : [],
+      requestKeys: reqObj ? Object.keys(reqObj) : [],
+      requestUid: reqObj ? reqObj.__uid || null : null,
+      requestBodyType: reqObj && reqObj.body ? typeof reqObj.body : 'none',
+      eventType: event ? typeof event.request : 'none'
+    };
+    log.error('[update-prayer-count] uid NOT FOUND, diag: ' + JSON.stringify(diag));
+    return fail(CODE.UNAUTHORIZED, 'uid required: ' + JSON.stringify(diag));
+  }
 
   var db = getDB();
   var now = new Date().toISOString();

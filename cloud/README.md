@@ -97,11 +97,18 @@ cloud/
    `180000 EACCES: permission denied, open '/dcache/layer/func/handler.js'`。
    这是 adm-zip 在 Windows 上打包的已知坑，patch 后文件以 0o644 可读权限解压。
 
-4. **创建 Cloud DB**：AGC 控制台 → Cloud DB → 创建存储区 `MashenZone` →
-   对象类型页「**导入对象类型**」，上传本仓库的 `cloud/agc-clouddb-object-types.json`
-   （已按 AGC 真实导出格式编排：`schemaVersion` + `objectTypes` + `permissions` 三段，
-   字段与各 handler upsert 逐一核对，权限块避免导入时报「权限为空」）。
-   也可按上表手建，但务必保证字段名/类型与之一致，否则 upsert 静默失败。
+4. **创建 Cloud DB 存储区**（必须在导入对象类型之前，云函数访问依赖此区）：
+   AGC 控制台 → 构建 → Cloud DB → 存储区管理 → **新增存储区**
+   - 存储区名称：`MashenZone`（与 `shared/db.js` 的 `CLOUD_DB_ZONE` **逐字一致**）
+   - 命名规则：字母开头，仅含字母数字（**不能下划线/中划线**），`MashenZone` 合规
+   - ⚠️ **存储区必须手动创建**：`database({ zoneName })` 不会自动建，不提前建好
+     云函数查询会报 `2002037: CloudDBZone does not exist`。
+   - 没建存储区只导入对象类型 = 对象类型存在但无处读写，仍报 2002037。
+
+5. **导入对象类型**：Cloud DB → 对象类型 → 「**导入对象类型**」，上传本仓库的
+   `cloud/agc-clouddb-object-types.json`（已按 AGC 真实导出格式编排：`schemaVersion`
+   + `objectTypes` + `permissions` 三段，字段与各 handler upsert 逐一核对，权限块避免
+   导入时报「权限为空」）。也可按上表手建，但务必保证字段名/类型与之一致，否则 upsert 静默失败。
 
    **导入报「权限为空」怎么办**：早期版本的 JSON 缺 `permissions` 块，AGC 控制台
    导入时会拦在「权限为空」。当前版本已补齐顶层 `permissions` 数组（每个对象类型 4 种
@@ -123,7 +130,7 @@ cloud/
    - 客户端不直连 Cloud DB（`CloudService.ets` 只用 `cloudFunction.call` 中转），
      故 World/Authenticated/Creator 实际不会被触发，设保守值即可，主要供审核看数据安全。
 
-5. **部署云函数**：AGC 控制台 → 构建 → 云函数 → 创建函数，依次上传 3 个 zip。
+6. **部署云函数**：AGC 控制台 → 构建 → 云函数 → 创建函数，依次上传 3 个 zip。
    每个 zip 已含 `handler.js`（导出 `myHandler`）+ `shared/` + `node_modules/`
    （含 `@hw-agconnect/cloud-server`）+ `agc-credential.json`，正斜杠路径，可直接上传。
 
@@ -159,10 +166,11 @@ cloud/
      `{ "nickname": "测***", "kowtowCount": 3, "streak": 1, "__uid": "test123" }`
      期望返回：`{ "code": 0, ... "data": { "updated": true } }`，且 Cloud DB
      `Leaderboard` 表多一条 `userId=test123` 记录。
-   - 报 401 `client token auth failed` → 凭证问题（见下「凭证注意」）。
+   - 报 401 `client token auth failed` → 凭证问题（见下「凭证说明」）。
    - 报 `3037003 primary key missing` → 对象类型未导入或字段名不符。
+   - 报 `2002037 CloudDBZone does not exist` → 存储区 `MashenZone` 没建（见步骤 4）。
 
-6. **客户端权限**：已在 `module.json5` 声明 `ohos.permission.INTERNET`。
+7. **客户端权限**：已在 `module.json5` 声明 `ohos.permission.INTERNET`。
 
 ### 凭证说明（`products: []` 为空是正常的）
 

@@ -15,8 +15,10 @@ const path = require('path');
 // 部署时随 zip 一起上传到函数根目录。
 const CRED_FILE = path.join(__dirname, '..', 'agc-credential.json');
 
-// Cloud DB 存储区名称：需与 AGC 控制台 Cloud DB 存储区一致。
-// openCloudDBZone 在不存在时会创建，故首次访问即生效。
+// Cloud DB 存储区名称：必须与 AGC 控制台 Cloud DB 存储区逐字一致。
+// ⚠️ 存储区必须先在控制台手动创建，database({ zoneName }) 不会自动创建——
+//    不存在时直接报 2002037: CloudDBZone does not exist。
+// 命名规则：字母开头，仅含字母数字（不能下划线/中划线）。
 const CLOUD_DB_ZONE = 'MashenZone';
 
 let cloudInstance = null;
