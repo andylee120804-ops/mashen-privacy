@@ -5,6 +5,7 @@ import { BlessingEngine } from '../engine/BlessingEngine'
 import { preferences } from '@kit.ArkData'
 import { util } from '@kit.ArkTS'
 import { EnrichViewModel } from './EnrichViewModel'
+import { CloudService } from '../service/CloudService'
 
 const PREF_NAME = 'mashen_user_prefs'
 const HISTORY_KEY = 'prayer_history'
@@ -106,14 +107,20 @@ export class PrayerViewModel {
     }
     this.totalPrayers++
     // 通知 EnrichViewModel 更新磕头/财神追踪
+    let streak: number = 0
     try {
       const enrichVM: EnrichViewModel = AppStorage.get<EnrichViewModel>('enrichViewModel') as EnrichViewModel
       if (enrichVM) {
         enrichVM.onKowtowDone(this.kowtowCount, this.todayDeity.id)
+        streak = enrichVM.checkin.streak
       }
     } catch (err) {
       console.error('[PrayerViewModel] Failed to update enrichVM:', JSON.stringify(err))
     }
+    // 异步上报网络排行榜（不阻塞本地持久化；失败不影响本地流程）
+    CloudService.updatePrayerCount(this.kowtowCount, streak).catch((e: Object) => {
+      console.error('[PrayerViewModel] updatePrayerCount failed:', JSON.stringify(e))
+    })
     await this.persistData()
   }
 
