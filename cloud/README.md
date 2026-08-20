@@ -91,7 +91,9 @@ cloud/
    ```
 
 4. **创建 Cloud DB**：AGC 控制台 → Cloud DB → 创建存储区 `MashenZone` →
-   新建对象类型 `Leaderboard`、`Wish`（字段见上表）→ 导出 schema 备用。
+   对象类型页「**导入对象类型**」，上传本仓库的 `cloud/agc-clouddb-object-types.json`
+   （已按 AGC 真实导出格式编排，与各 handler upsert 字段逐一核对一致）。
+   也可按上表手建，但务必保证字段名/类型与之一致，否则 upsert 静默失败。
 
 5. **部署云函数**：AGC 控制台 → 云函数 → 依次上传 3 个 zip：
    - 运行时 Node.js 18，内存 256MB，超时 30s

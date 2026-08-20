@@ -1,0 +1,206 @@
+{
+  "schemaVersion": 1,
+  "objectTypes": [
+    {
+      "objectTypeName": "Leaderboard",
+      "fields": [
+        {
+          "fieldName": "userId",
+          "fieldType": "String",
+          "belongPrimaryKey": true,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false
+        },
+        {
+          "fieldName": "nickname",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        },
+        {
+          "fieldName": "todayCount",
+          "fieldType": "Integer",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": 0
+        },
+        {
+          "fieldName": "weekCount",
+          "fieldType": "Integer",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": 0
+        },
+        {
+          "fieldName": "totalCount",
+          "fieldType": "Integer",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": 0
+        },
+        {
+          "fieldName": "totalKowtow",
+          "fieldType": "Integer",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": 0
+        },
+        {
+          "fieldName": "streak",
+          "fieldType": "Integer",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": 0
+        },
+        {
+          "fieldName": "updatedAt",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        },
+        {
+          "fieldName": "weekStart",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        }
+      ],
+      "indexes": [
+        {
+          "indexName": "todayCount",
+          "indexList": [
+            {
+              "fieldName": "todayCount",
+              "sortType": "DESC"
+            }
+          ]
+        },
+        {
+          "indexName": "weekCount",
+          "indexList": [
+            {
+              "fieldName": "weekCount",
+              "sortType": "DESC"
+            }
+          ]
+        },
+        {
+          "indexName": "totalCount",
+          "indexList": [
+            {
+              "fieldName": "totalCount",
+              "sortType": "DESC"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "objectTypeName": "Wish",
+      "fields": [
+        {
+          "fieldName": "id",
+          "fieldType": "String",
+          "belongPrimaryKey": true,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false
+        },
+        {
+          "fieldName": "userId",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        },
+        {
+          "fieldName": "nickname",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        },
+        {
+          "fieldName": "content",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        },
+        {
+          "fieldName": "deityId",
+          "fieldType": "Integer",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": 0
+        },
+        {
+          "fieldName": "fulfilled",
+          "fieldType": "Boolean",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": false
+        },
+        {
+          "fieldName": "createdAt",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        },
+        {
+          "fieldName": "fulfilledAt",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        }
+      ],
+      "indexes": [
+        {
+          "indexName": "createdAt",
+          "indexList": [
+            {
+              "fieldName": "createdAt",
+              "sortType": "DESC"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
