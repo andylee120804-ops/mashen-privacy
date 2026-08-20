@@ -133,9 +133,8 @@ export struct GameRecordCard {
       .width('100%')
       .justifyContent(FlexAlign.Center)
 
-      const winRate = this.enrichVM.getWinRate()
       Row() {
-        Text(`祈福胜率：${winRate.rate}%`)
+        Text(`祈福胜率：${this.enrichVM.getWinRate().rate}%`)
           .fontSize(11)
           .fontColor('rgba(253, 246, 227, 0.5)')
         Text(' | ')
