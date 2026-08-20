@@ -1,5 +1,6 @@
 {
   "src": [
+    "pages/MainTabs",
     "pages/HomePage",
     "pages/NameCard",
     "pages/PrayerCard",
