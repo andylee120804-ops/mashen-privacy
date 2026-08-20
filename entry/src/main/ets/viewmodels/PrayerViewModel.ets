@@ -4,11 +4,13 @@ import { DeityRotator } from '../engine/DeityRotator'
 import { BlessingEngine } from '../engine/BlessingEngine'
 import { preferences } from '@kit.ArkData'
 import { util } from '@kit.ArkTS'
+import { EnrichViewModel } from './EnrichViewModel'
 
 const PREF_NAME = 'mashen_user_prefs'
 const HISTORY_KEY = 'prayer_history'
 const RECENT_NAMES_KEY = 'recentNames'
 const TOTAL_PRAYERS_KEY = 'totalPrayers'
+const PRIVACY_KEY = 'privacy_accepted'
 const MAX_HISTORY = 100
 const MAX_RECENT_NAMES = 5
 
@@ -47,10 +49,10 @@ export class PrayerViewModel {
     this.currentPhase = PrayerPhase.ANIMATING
   }
 
-  onAnimationComplete(): void {
+  onAnimationComplete(kowtowCount: number = 0): void {
     if (!this.blessingEngine) return
     this.blessing = this.blessingEngine.getBlessing(this.todayDeity.id, this.userName)
-    this.kowtowCount = 3
+    this.kowtowCount = kowtowCount
     this.currentPhase = PrayerPhase.BLESSING
     this.saveRecord()
   }
@@ -60,6 +62,31 @@ export class PrayerViewModel {
     this.userName = ''
     this.blessing = ''
     this.kowtowCount = 0
+  }
+
+  async isPrivacyAccepted(): Promise<boolean> {
+    if (!this.dataPrefs) return false
+    try {
+      return await this.dataPrefs.get(PRIVACY_KEY, false) as boolean
+    } catch (err) {
+      console.error('[PrayerViewModel] Failed to read privacy:', JSON.stringify(err))
+      return false
+    }
+  }
+
+  async acceptPrivacy(): Promise<void> {
+    if (!this.dataPrefs) return
+    try {
+      await this.dataPrefs.put(PRIVACY_KEY, true)
+      await this.dataPrefs.flush()
+    } catch (err) {
+      console.error('[PrayerViewModel] Failed to save privacy:', JSON.stringify(err))
+    }
+  }
+
+  async clearHistory(): Promise<void> {
+    this.history = []
+    await this.persistData()
   }
 
   private async saveRecord(): Promise<void> {
@@ -76,6 +103,15 @@ export class PrayerViewModel {
       this.history = this.history.slice(0, MAX_HISTORY)
     }
     this.totalPrayers++
+    // 通知 EnrichViewModel 更新磕头/财神追踪
+    try {
+      const enrichVM: EnrichViewModel = AppStorage.get<EnrichViewModel>('enrichViewModel') as EnrichViewModel
+      if (enrichVM) {
+        enrichVM.onKowtowDone(this.kowtowCount, this.todayDeity.id)
+      }
+    } catch (err) {
+      console.error('[PrayerViewModel] Failed to update enrichVM:', JSON.stringify(err))
+    }
     await this.persistData()
   }
 
@@ -116,7 +152,7 @@ export class PrayerViewModel {
 
   private parseJsonArray<T>(json: string): T[] {
     try {
-      const parsed = JSON.parse(json)
+      const parsed: Object = JSON.parse(json)
       return Array.isArray(parsed) ? (parsed as T[]) : []
     } catch {
       return []

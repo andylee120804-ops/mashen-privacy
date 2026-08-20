@@ -1,13 +1,64 @@
 import { UIAbility, Want, AbilityConstant } from '@kit.AbilityKit'
 import { window } from '@kit.ArkUI'
+import { AudioManager } from '../service/AudioManager'
+import { PrayerViewModel } from '../viewmodels/PrayerViewModel'
+import { EnrichViewModel } from '../viewmodels/EnrichViewModel'
+import { preferences } from '@kit.ArkData'
+import { util } from '@kit.ArkTS'
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
-    // App initialization
+    // 预加载音效到 SoundPool
+    AudioManager.getInstance().init(this.context).catch((err: Object) => {
+      console.error('AudioManager init failed:', JSON.stringify(err))
+    })
+
+    // 全局共享的祈福视图模型；各页面通过 @StorageLink('viewModel') 读取，
+    // 避免跨路由页面使用 @Provide/@Consume 导致取不到值。
+    const viewModel = new PrayerViewModel()
+    AppStorage.setOrCreate('viewModel', viewModel)
+    viewModel.initialize(this.context).catch((err: Object) => {
+      console.error('PrayerViewModel init failed:', JSON.stringify(err))
+    })
+
+    // 全局共享的增值内容视图模型（黄历/磕头/财神追踪）
+    const enrichVM = new EnrichViewModel()
+    AppStorage.setOrCreate('enrichViewModel', enrichVM)
+    enrichVM.initialize(this.context).catch((err: Object) => {
+      console.error('EnrichViewModel init failed:', JSON.stringify(err))
+    })
+
+    // 生成或读取设备用户 ID（供 CloudService 匿名标识使用）
+    preferences.getPreferences(this.context, 'mashen_user_prefs').then((prefs: preferences.Preferences) => {
+      prefs.get('deviceUserId', '').then((val: preferences.ValueType) => {
+        let uid: string = val as string
+        if (!uid) {
+          uid = 'u_' + util.generateRandomUUID(true)
+          prefs.put('deviceUserId', uid)
+          prefs.flush()
+        }
+        AppStorage.setOrCreate('deviceUserId', uid)
+      })
+    })
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
-    windowStage.loadContent('pages/HomePage', (err) => {
+    // 沉浸式：内容延伸到状态栏与导航栏区域，系统栏透明，
+    // 消除屏幕上下白边，使深色背景铺满全屏。
+    const mainWindow = windowStage.getMainWindowSync()
+    mainWindow.setWindowLayoutFullScreen(true).then(() => {
+      return mainWindow.setWindowSystemBarProperties({
+        statusBarColor: '#00000000',
+        statusBarContentColor: '#f9ca24',
+        navigationBarColor: '#00000000',
+        navigationBarContentColor: '#f9ca24'
+      })
+    }).catch((err: Object) => {
+      console.error('Immersive window setup failed:', JSON.stringify(err))
+    })
+
+    // 改为加载 MainTabs（四 Tab 主框架）
+    windowStage.loadContent('pages/MainTabs', (err) => {
       if (err.code) {
         console.error('Failed to load content:', JSON.stringify(err))
       }
@@ -15,10 +66,12 @@ export default class EntryAbility extends UIAbility {
   }
 
   onBackground(): void {
-    // Release audio resources
+    // App 进入后台时停止 BGM
+    AudioManager.getInstance().stopBgm()
   }
 
   onDestroy(): void {
-    // Release all resources
+    // 释放所有音频资源
+    AudioManager.getInstance().release()
   }
 }

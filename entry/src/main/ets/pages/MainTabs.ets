@@ -2,6 +2,7 @@
 import { PrayerViewModel } from '../viewmodels/PrayerViewModel'
 import { EnrichViewModel } from '../viewmodels/EnrichViewModel'
 import { DeityArrayView } from '../components/DeityArrayView'
+import { DailyAlmanac } from '../components/DailyAlmanac'
 import { PrivacyDialog } from '../components/PrivacyDialog'
 import { FIVE_DEITIES } from '../model/PrayerTypes'
 import { WishWallPage } from './WishWall'
@@ -112,13 +113,8 @@ struct MainTabs {
         .backgroundColor('#1a1a0a')
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
 
-      // 黄历卡片 - DailyAlmanac component will be created in Task 3.1
-      // For now, show a placeholder text
-      Text('📅 今日麻将黄历')
-        .fontSize(14)
-        .fontColor('rgba(249, 202, 36, 0.5)')
-        .position({ x: '50%', y: 12 })
-        .translate({ x: '-50%', y: '0' })
+      // 黄历卡片
+      DailyAlmanac({ enrichVM: $enrichVM })
 
       // 五神弧形阵
       Column() {
