@@ -1,8 +1,8 @@
 // cloud/wish-wall/handler.js
 // 心愿墙：list（列表）/ create（发布）/ fulfill（还愿）。
 // 客户端 data: { action, __uid, content?, deityId?, nickname?, wishId? }
-const { wrapHttp, success, fail, CODE } = require('../shared/response');
-const { getDB, toGenericObjects } = require('../shared/db');
+const { wrapHttp, success, fail, CODE } = require('./shared/response');
+const { getDB, toGenericObjects } = require('./shared/db');
 
 var TYPE = 'Wish';
 var MAX_CONTENT = 30;

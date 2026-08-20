@@ -2,8 +2,8 @@
 // 排行榜查询：日榜/周榜/总榜 + 今日香火人数。
 // 客户端 data: { type: 'daily'|'weekly'|'total'|'daily-count', __uid }
 // 查询由 collection(type).query() 链式条件后 .get() 执行（返回 Promise<T[]>）。
-const { wrapHttp, success, fail, CODE } = require('../shared/response');
-const { getDB, getWeekStart } = require('../shared/db');
+const { wrapHttp, success, fail, CODE } = require('./shared/response');
+const { getDB, getWeekStart } = require('./shared/db');
 
 var TYPE = 'Leaderboard';
 

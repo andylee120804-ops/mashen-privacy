@@ -1,8 +1,8 @@
 // cloud/update-prayer-count/handler.js
 // 祈福完成后上报：累加今日/本周/总次数与磕头数，按天/周重置。
 // 客户端 data: { __uid, nickname, kowtowCount, streak }
-const { wrapHttp, success, fail, CODE } = require('../shared/response');
-const { getDB, toGenericObjects, getWeekStart } = require('../shared/db');
+const { wrapHttp, success, fail, CODE } = require('./shared/response');
+const { getDB, toGenericObjects, getWeekStart } = require('./shared/db');
 
 var TYPE = 'Leaderboard';
 
