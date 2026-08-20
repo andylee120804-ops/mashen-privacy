@@ -38,7 +38,7 @@ cloud/
 
 ## Cloud DB schema（部署前在 AGC 控制台创建）
 
-存储区名称：`MashenZone`（见 `shared/db.js` 的 `CLOUD_DB_ZONE`）。
+存储区名称：`Mashen`（见 `shared/db.js` 的 `CLOUD_DB_ZONE`）。
 
 ### Leaderboard 对象类型
 
@@ -99,8 +99,8 @@ cloud/
 
 4. **创建 Cloud DB 存储区**（必须在导入对象类型之前，云函数访问依赖此区）：
    AGC 控制台 → 构建 → Cloud DB → 存储区管理 → **新增存储区**
-   - 存储区名称：`MashenZone`（与 `shared/db.js` 的 `CLOUD_DB_ZONE` **逐字一致**）
-   - 命名规则：字母开头，仅含字母数字（**不能下划线/中划线**），`MashenZone` 合规
+   - 存储区名称：`Mashen`（与 `shared/db.js` 的 `CLOUD_DB_ZONE` **逐字一致**）
+   - 命名规则：字母开头，仅含字母数字（**不能下划线/中划线**），`Mashen` 合规
    - ⚠️ **存储区必须手动创建**：`database({ zoneName })` 不会自动建，不提前建好
      云函数查询会报 `2002037: CloudDBZone does not exist`。
    - 没建存储区只导入对象类型 = 对象类型存在但无处读写，仍报 2002037。
@@ -168,7 +168,7 @@ cloud/
      `Leaderboard` 表多一条 `userId=test123` 记录。
    - 报 401 `client token auth failed` → 凭证问题（见下「凭证说明」）。
    - 报 `3037003 primary key missing` → 对象类型未导入或字段名不符。
-   - 报 `2002037 CloudDBZone does not exist` → 存储区 `MashenZone` 没建（见步骤 4）。
+   - 报 `2002037 CloudDBZone does not exist` → 存储区 `Mashen` 没建（见步骤 4）。
 
 7. **客户端权限**：已在 `module.json5` 声明 `ohos.permission.INTERNET`。
 
@@ -181,7 +181,7 @@ cloud/
   项目凭证会报 `203886599 the type of clientId not match`，这里没有，说明凭证类型对）。
 - `products: []` 为空**不代表缺权限**：当前 AGC 控制台创建 API Client 时已没有「关联
   Cloud DB 产品」勾选项（旧版有，现版移除了）。Cloud DB 访问权是**项目级授予**的——
-  项目里开通了 Cloud DB、建了 `MashenZone` 存储区，项目内的 API Client 即自动有访问权，
+  项目里开通了 Cloud DB、建了 `Mashen` 存储区，项目内的 API Client 即自动有访问权，
   `products` 只是 token 响应里不再回填的遗留字段。
 - 所以**直接按上面步骤部署即可**，不用找产品勾选项。
 

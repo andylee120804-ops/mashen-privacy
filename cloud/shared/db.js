@@ -19,7 +19,7 @@ const CRED_FILE = path.join(__dirname, '..', 'agc-credential.json');
 // ⚠️ 存储区必须先在控制台手动创建，database({ zoneName }) 不会自动创建——
 //    不存在时直接报 2002037: CloudDBZone does not exist。
 // 命名规则：字母开头，仅含字母数字（不能下划线/中划线）。
-const CLOUD_DB_ZONE = 'MashenZone';
+const CLOUD_DB_ZONE = 'Mashen';
 
 let cloudInstance = null;
 let cachedDB = null;
