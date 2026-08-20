@@ -7,6 +7,10 @@
     {
       "name": "vibrate_reason",
       "value": "提供磕头祈福时的触感反馈"
+    },
+    {
+      "name": "internet_reason",
+      "value": "用于同步祈福排行榜与心愿墙数据"
     }
   ]
 }

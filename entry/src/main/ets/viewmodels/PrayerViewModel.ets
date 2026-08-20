@@ -46,6 +46,8 @@ export class PrayerViewModel {
   confirmName(name: string): void {
     this.userName = name
     this.saveRecentName(name)
+    // 写入 AppStorage 供 CloudService 生成脱敏昵称（首字 + ***）
+    AppStorage.setOrCreate('lastPrayerName', name)
     this.currentPhase = PrayerPhase.ANIMATING
   }
 
