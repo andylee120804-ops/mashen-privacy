@@ -12,7 +12,6 @@ import { WishWallPage } from './WishWall'
 import { QiuQianPage } from './QiuQian'
 import { MuyuPage } from './MuyuPage'
 import { FortuneAlmanacPage } from './FortuneAlmanacPage'
-import { ShenDanCalendarPage } from './ShenDanCalendar'
 import { LeaderboardPage } from './Leaderboard'
 import { EncyclopediaPage } from './EncyclopediaPage'
 import { MyPage } from './MyPage'
@@ -193,8 +192,6 @@ struct MainTabs {
       FortuneAlmanacPage()
     } else if (id === 'wishwall') {
       WishWallPage()
-    } else if (id === 'calendar') {
-      ShenDanCalendarPage()
     } else if (id === 'leaderboard') {
       LeaderboardPage()
     } else if (id === 'encyclopedia') {

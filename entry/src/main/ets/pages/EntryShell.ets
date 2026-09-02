@@ -5,7 +5,6 @@ import { QiuQianPage } from './QiuQian'
 import { MuyuPage } from './MuyuPage'
 import { FortuneAlmanacPage } from './FortuneAlmanacPage'
 import { WishWallPage } from './WishWall'
-import { ShenDanCalendarPage } from './ShenDanCalendar'
 import { LeaderboardPage } from './Leaderboard'
 import { EncyclopediaPage } from './EncyclopediaPage'
 
@@ -50,8 +49,6 @@ struct EntryShell {
         FortuneAlmanacPage()
       } else if (this.entryId === 'wishwall') {
         WishWallPage()
-      } else if (this.entryId === 'calendar') {
-        ShenDanCalendarPage()
       } else if (this.entryId === 'leaderboard') {
         LeaderboardPage()
       } else if (this.entryId === 'encyclopedia') {

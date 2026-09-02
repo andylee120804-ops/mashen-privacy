@@ -19,6 +19,7 @@ export interface EntryItem {
 
 /**
  * 入口池（id → 页面组件映射见 MainTabs/EntryShell）。
+ * 财神历·神诞已并入运势·黄历页（v1.3.0 反馈），不再作为独立入口。
  * 默认 order：fortune 置顶「我的入口」第 1 条；默认 Tab = 求签 + 木鱼。
  */
 export const ENTRY_POOL: EntryDef[] = [
@@ -26,7 +27,6 @@ export const ENTRY_POOL: EntryDef[] = [
   { id: 'qiuqian', icon: '🎋', title: '求签' },
   { id: 'muyu', icon: '🪵', title: '木鱼' },
   { id: 'wishwall', icon: '🙏', title: '还愿心愿墙' },
-  { id: 'calendar', icon: '📅', title: '财神历·神诞' },
   { id: 'leaderboard', icon: '🏆', title: '祈福排行榜' },
   { id: 'encyclopedia', icon: '📜', title: '财神百科' }
 ]
@@ -40,15 +40,14 @@ const KEY_ENTRY_CONFIG = 'entryConfig'
  *  各消费页以 @StorageLink('entryConfigRev') + @Watch 重取派生数据。 */
 const KEY_CONFIG_REV = 'entryConfigRev'
 
-/** 默认配置：qiuqian/muyu 开启，其余走「我的」页 */
+/** 默认配置：qiuqian/muyu 开启，其余走「我的」页（加载时以池为准合并，忽略旧配置中已下线入口） */
 const DEFAULT_ITEMS: EntryItem[] = [
   { id: 'fortune', enabled: false, order: 1 },
   { id: 'qiuqian', enabled: true, order: 2 },
   { id: 'muyu', enabled: true, order: 3 },
   { id: 'wishwall', enabled: false, order: 4 },
-  { id: 'calendar', enabled: false, order: 5 },
-  { id: 'leaderboard', enabled: false, order: 6 },
-  { id: 'encyclopedia', enabled: false, order: 7 }
+  { id: 'leaderboard', enabled: false, order: 5 },
+  { id: 'encyclopedia', enabled: false, order: 6 }
 ]
 
 @Observed
