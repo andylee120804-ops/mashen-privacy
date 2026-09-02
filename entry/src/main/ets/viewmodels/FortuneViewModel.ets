@@ -7,6 +7,10 @@ const PREF_NAME = 'mashen_fortune_prefs'
 const KEY_ZODIAC = 'zodiacIdx'
 const KEY_SHENGXIAO = 'shengxiaoIdx'
 const KEY_SHENDAN_FAVORITES = 'shendanFavorites'
+/** AppStorage 版本信号：属相/星座/神诞收藏等偏好变更后 +1，
+ *  消费页（运势页/我的页速览卡）以 @StorageLink('fortuneRev') + @Watch 重建派生 UI。
+ *  UI v1 下 @StorageLink 不自动通知 @Observed 嵌套属性变更，必须显式发信号。 */
+const KEY_FORTUNE_REV = 'fortuneRev'
 
 @Observed
 export class FortuneViewModel {
@@ -26,6 +30,17 @@ export class FortuneViewModel {
     } catch (err) {
       console.error('[FortuneViewModel] Failed to load prefs:', JSON.stringify(err))
     }
+    this.notifyChanged()
+  }
+
+  /** 偏好变更信号：写 AppStorage rev，消费页 @Watch 后重建派生 UI（见 KEY_FORTUNE_REV 注释） */
+  private notifyChanged(): void {
+    try {
+      const cur: number = AppStorage.get<number>(KEY_FORTUNE_REV) ?? 0
+      AppStorage.setOrCreate(KEY_FORTUNE_REV, cur + 1)
+    } catch (err) {
+      console.error('[FortuneViewModel] notifyChanged failed:', JSON.stringify(err))
+    }
   }
 
   hasShengxiao(): boolean {
@@ -35,11 +50,13 @@ export class FortuneViewModel {
   setShengxiao(idx: number): void {
     this.shengxiaoIdx = idx
     this.persistProfile()
+    this.notifyChanged()
   }
 
   setZodiac(idx: number): void {
     this.zodiacIdx = idx
     this.persistProfile()
+    this.notifyChanged()
   }
 
   toggleShendanFavorite(id: string): void {
@@ -49,6 +66,7 @@ export class FortuneViewModel {
       this.shendanFavorites = [...this.shendanFavorites, id]
     }
     this.persistFavorites()
+    this.notifyChanged()
   }
 
   getShengxiaoFortune(dateStr: string): ShengxiaoFortune | null {

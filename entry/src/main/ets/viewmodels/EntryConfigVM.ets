@@ -35,6 +35,10 @@ export const ENTRY_POOL: EntryDef[] = [
 const MAX_TABS = 3
 const PREF_NAME = 'mashen_entry_prefs'
 const KEY_ENTRY_CONFIG = 'entryConfig'
+/** AppStorage 版本信号：UI v1 下 @StorageLink 只观察顶层键，@Observed 嵌套属性
+ *  变更不会自动通知读取方（MainTabs 的 Tab 列表等），每次持久化变更后 +1，
+ *  各消费页以 @StorageLink('entryConfigRev') + @Watch 重取派生数据。 */
+const KEY_CONFIG_REV = 'entryConfigRev'
 
 /** 默认配置：qiuqian/muyu 开启，其余走「我的」页 */
 const DEFAULT_ITEMS: EntryItem[] = [
@@ -80,6 +84,17 @@ export class EntryConfigVM {
     } catch (err) {
       console.error('[EntryConfigVM] Failed to load prefs:', JSON.stringify(err))
     }
+    this.notifyChanged()
+  }
+
+  /** 条目变更信号：写 AppStorage rev，消费页 @Watch 后重建派生 UI（见 KEY_CONFIG_REV 注释） */
+  private notifyChanged(): void {
+    try {
+      const cur: number = AppStorage.get<number>(KEY_CONFIG_REV) ?? 0
+      AppStorage.setOrCreate(KEY_CONFIG_REV, cur + 1)
+    } catch (err) {
+      console.error('[EntryConfigVM] notifyChanged failed:', JSON.stringify(err))
+    }
   }
 
   /** 开关入口的 Tab 显示；开启第 MAX_TABS+1 个时拒绝并返回 false */
@@ -94,7 +109,29 @@ export class EntryConfigVM {
       return it
     })
     this.persist()
+    this.notifyChanged()
     return true
+  }
+
+  /** 长按拖拽排序：把 order 升序列表中的 fromIdx 移到 toIdx（其余依次顺延/前移） */
+  move(fromIdx: number, toIdx: number): void {
+    if (fromIdx === toIdx) {
+      return
+    }
+    const sorted = this.getSortedItems()
+    if (fromIdx < 0 || fromIdx >= sorted.length || toIdx < 0 || toIdx >= sorted.length) {
+      return
+    }
+    const arr = sorted.map((it: EntryItem): EntryItem => {
+      return { id: it.id, enabled: it.enabled, order: it.order }
+    })
+    const moved: EntryItem = arr.splice(fromIdx, 1)[0]
+    arr.splice(toIdx, 0, moved)
+    this.items = arr.map((it: EntryItem, i: number): EntryItem => {
+      return { id: it.id, enabled: it.enabled, order: i + 1 }
+    })
+    this.persist()
+    this.notifyChanged()
   }
 
   /** 与全量排序列表中的相邻项交换 order；dir=-1 上移，1 下移 */

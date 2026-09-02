@@ -24,6 +24,10 @@ struct MainTabs {
   @StorageLink('viewModel') viewModel: PrayerViewModel = new PrayerViewModel()
   @StorageLink('enrichViewModel') enrichVM: EnrichViewModel = new EnrichViewModel()
   @StorageLink('entryConfigVM') entryConfigVM: EntryConfigVM = new EntryConfigVM()
+  // UI v1：@StorageLink 只观察顶层键，@Observed VM 嵌套变更不通知 UI。
+  // VM 每次变更 bump entryConfigRev，这里 @Watch 后重建 tabDefs（@State）驱动刷新。
+  @StorageLink('entryConfigRev') @Watch('onEntryConfigRev') entryConfigRev: number = 0
+  @State tabDefs: EntryDef[] = []
   @State currentTab: number = 0
   @State showPrivacyDialog: boolean = false
   // 监听成就解锁事件
@@ -31,18 +35,51 @@ struct MainTabs {
   private privacyDialogController: CustomDialogController | null = null
 
   aboutToAppear(): void {
+    this.syncTabs()
     // 当前激活入口 id 写入 AppStorage，供求签页判断是否激活
     // （摇晃出签只在求签入口激活时响应；Tab 可配置后索引不再固定，必须用 id）
     AppStorage.setOrCreate('activeEntryId', 'blessing')
     this.checkPrivacyAccepted()
   }
 
+  /** VM 变更通知（AppStorage rev 信号）：重建 Tab 列表并校正当前索引 */
+  onEntryConfigRev(): void {
+    this.syncTabs()
+  }
+
+  /** 完整 Tab 列表：祈福（固定头）+ 已启用入口（按用户 order）+ 我的（固定尾） */
+  private buildTabs(): EntryDef[] {
+    const tabs: EntryDef[] = [{ id: 'blessing', icon: '🀄', title: '祈福' }]
+    const enabled = this.entryConfigVM.getTabEntries()
+    for (const e of enabled) {
+      tabs.push(e)
+    }
+    tabs.push({ id: 'mine', icon: '🧧', title: '我的' })
+    return tabs
+  }
+
+  /** 重建 tabDefs（@State 快照，UI 可靠刷新）并把 currentTab 收敛到有效范围 */
+  private syncTabs(): void {
+    const tabs = this.buildTabs()
+    this.tabDefs = tabs
+    if (this.currentTab >= tabs.length) {
+      // 开启项被关闭导致尾部索引失效时收敛（「我的」固定在最后，正常总会落到它）
+      this.currentTab = Math.max(0, tabs.length - 1)
+    }
+  }
+
   /** 从 EntryShell 返回时 Tab 未变、onChange 不触发，这里重新同步激活入口 id，
    *  避免 EntryShell 写入的 activeEntryId 残留导致摇晃门控误开 */
   onPageShow(): void {
-    const tabs = this.getTabs()
-    const activeId = this.currentTab >= 0 && this.currentTab < tabs.length ? tabs[this.currentTab].id : 'blessing'
+    const activeId = this.activeIdOf(this.currentTab)
     AppStorage.setOrCreate('activeEntryId', activeId)
+  }
+
+  private activeIdOf(tabIndex: number): string {
+    if (tabIndex >= 0 && tabIndex < this.tabDefs.length) {
+      return this.tabDefs[tabIndex].id
+    }
+    return 'blessing'
   }
 
   onAchievementUnlocked(): void {
@@ -89,56 +126,32 @@ struct MainTabs {
     this.privacyDialogController.open()
   }
 
-  /** 完整 Tab 列表：祈福（固定头）+ 已启用入口（按用户 order）+ 我的（固定尾） */
-  private getTabs(): EntryDef[] {
-    const tabs: EntryDef[] = [{ id: 'blessing', icon: '🀄', title: '祈福' }]
-    const enabled = this.entryConfigVM.getTabEntries()
-    for (const e of enabled) {
-      tabs.push(e)
-    }
-    tabs.push({ id: 'mine', icon: '🧧', title: '我的' })
-    return tabs
-  }
-
-  private tabIndexOf(id: string): number {
-    const tabs = this.getTabs()
-    for (let i = 0; i < tabs.length; i++) {
-      if (tabs[i].id === id) {
-        return i
-      }
-    }
-    return 0
-  }
-
   build() {
     Column() {
       Tabs({ index: this.currentTab }) {
-        TabContent() {
-          // 祈福页为固定全屏布局：包一层垂直 Scroll，让上下滑动到边界有
-          // Spring 回弹反馈（AGC「滑动动效」标准：滑动到边界必须有反馈动效）
-          Scroll() {
-            this.BlessingSquare()
-          }
-          .width('100%')
-          .height('100%')
-          .scrollable(ScrollDirection.Vertical)
-          .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
-          .scrollBar(BarState.Off)
-        }
-        .tabBar(this.TabBarBuilder(0, '🀄', '祈福'))
-
-        // 中间可配置 Tab（由「我的」页界面定制控制开关与排序）
-        ForEach(this.entryConfigVM.getTabEntries(), (entry: EntryDef) => {
+        // 全部 Tab 由 tabDefs 统一驱动（祈福/我的固定项也在列表内，按 id 分支内容）
+        ForEach(this.tabDefs, (def: EntryDef, idx: number) => {
           TabContent() {
-            this.EntryContent(entry.id)
+            if (def.id === 'blessing') {
+              // 祈福页为固定全屏布局：包一层垂直 Scroll，让上下滑动到边界有
+              // Spring 回弹反馈（AGC「滑动动效」标准：滑动到边界必须有反馈动效）
+              Scroll() {
+                this.BlessingSquare()
+              }
+              .width('100%')
+              .height('100%')
+              .scrollable(ScrollDirection.Vertical)
+              .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+              .scrollBar(BarState.Off)
+            } else if (def.id === 'mine') {
+              MyPage()
+            } else {
+              // 中间可配置 Tab（由「界面定制」子页控制开关与排序）
+              this.EntryContent(def.id)
+            }
           }
-          .tabBar(this.TabBarBuilder(this.tabIndexOf(entry.id), entry.icon, entry.title))
-        }, (entry: EntryDef) => entry.id)
-
-        TabContent() {
-          MyPage()
-        }
-        .tabBar(this.TabBarBuilder(this.tabIndexOf('mine'), '🧧', '我的'))
+          .tabBar(this.TabBarBuilder(idx, def.icon, def.title))
+        }, (def: EntryDef) => def.id)
       }
       // 底部导航栏：Tabs 默认 BarPosition.Start 渲染在顶部，沉浸式下易与状态栏重叠
       // 导致点击不响应；显式指定 End 让 Tab 栏落在底部可点击安全区。
@@ -152,8 +165,7 @@ struct MainTabs {
       .edgeEffect(EdgeEffect.Spring)
       .onChange((index: number) => {
         this.currentTab = index
-        const tabs = this.getTabs()
-        const activeId = index >= 0 && index < tabs.length ? tabs[index].id : 'blessing'
+        const activeId = this.activeIdOf(index)
         AppStorage.setOrCreate('activeEntryId', activeId)
       })
     }
