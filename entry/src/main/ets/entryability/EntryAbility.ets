@@ -5,6 +5,9 @@ import { PrayerViewModel } from '../viewmodels/PrayerViewModel'
 import { EnrichViewModel } from '../viewmodels/EnrichViewModel'
 import { preferences } from '@kit.ArkData'
 import { util } from '@kit.ArkTS'
+import { EntryConfigVM } from '../viewmodels/EntryConfigVM'
+import { FortuneViewModel } from '../viewmodels/FortuneViewModel'
+import { MuyuViewModel } from '../viewmodels/MuyuViewModel'
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
@@ -28,6 +31,27 @@ export default class EntryAbility extends UIAbility {
       console.error('EnrichViewModel init failed:', JSON.stringify(err))
     })
 
+    // 全局共享的入口配置（界面定制：Tab 开关与排序）
+    const entryConfigVM = new EntryConfigVM()
+    AppStorage.setOrCreate('entryConfigVM', entryConfigVM)
+    entryConfigVM.initialize(this.context).catch((err: Object) => {
+      console.error('EntryConfigVM init failed:', JSON.stringify(err))
+    })
+
+    // 全局共享的运势视图模型（星座/属相偏好、神诞收藏）
+    const fortuneVM = new FortuneViewModel()
+    AppStorage.setOrCreate('fortuneVM', fortuneVM)
+    fortuneVM.initialize(this.context).catch((err: Object) => {
+      console.error('FortuneViewModel init failed:', JSON.stringify(err))
+    })
+
+    // 全局共享的电子木鱼计数
+    const muyuVM = new MuyuViewModel()
+    AppStorage.setOrCreate('muyuVM', muyuVM)
+    muyuVM.initialize(this.context).catch((err: Object) => {
+      console.error('MuyuViewModel init failed:', JSON.stringify(err))
+    })
+
     // 生成或读取设备用户 ID（供 CloudService 匿名标识使用）
     preferences.getPreferences(this.context, 'mashen_user_prefs').then((prefs: preferences.Preferences) => {
       prefs.get('deviceUserId', '').then((val: preferences.ValueType) => {
@@ -43,6 +67,10 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
+    // App 前后台状态标记：求签页据此注册/注销加速度计。
+    // 审核标准「应用退后台禁止使用传感器」：退后台必须释放传感器占用。
+    AppStorage.setOrCreate('appInForeground', true)
+
     // 沉浸式：内容延伸到状态栏与导航栏区域，系统栏透明，
     // 消除屏幕上下白边，使深色背景铺满全屏。
     const mainWindow = windowStage.getMainWindowSync()
@@ -65,9 +93,16 @@ export default class EntryAbility extends UIAbility {
     })
   }
 
+  onForeground(): void {
+    // App 回到前台：求签页据此恢复加速度计订阅（仅前台 + 求签 tab 激活时占用传感器）
+    AppStorage.setOrCreate('appInForeground', true)
+  }
+
   onBackground(): void {
     // App 进入后台时停止 BGM
     AudioManager.getInstance().stopBgm()
+    // 退后台禁止占用传感器：通知求签页立即注销加速度计订阅
+    AppStorage.setOrCreate('appInForeground', false)
   }
 
   onDestroy(): void {
