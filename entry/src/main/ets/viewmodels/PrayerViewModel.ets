@@ -21,6 +21,8 @@ export class PrayerViewModel {
   userName: string = ''
   todayDeity: DeityInfo
   blessing: string = ''
+  // 祈福场景（v1.3.0 场景矩阵，NameCard 选择，BlessingCard 按场景出祝福语）
+  sceneId: string = 'wealth'
   kowtowCount: number = 0
   recentNames: string[] = []
   totalPrayers: number = 0
@@ -64,6 +66,7 @@ export class PrayerViewModel {
     this.currentPhase = PrayerPhase.IDLE
     this.userName = ''
     this.blessing = ''
+    this.sceneId = 'wealth'
     this.kowtowCount = 0
   }
 
@@ -124,11 +127,32 @@ export class PrayerViewModel {
     await this.persistData()
   }
 
+  removeRecentName(name: string): void {
+    this.recentNames = this.recentNames.filter(n => n !== name)
+    this.persistRecentNames()
+  }
+
+  deleteRecord(id: string): void {
+    this.history = this.history.filter(r => r.id !== id)
+    this.persistData()
+  }
+
   private saveRecentName(name: string): void {
     this.recentNames = this.recentNames.filter(n => n !== name)
     this.recentNames.unshift(name)
     if (this.recentNames.length > MAX_RECENT_NAMES) {
       this.recentNames = this.recentNames.slice(0, MAX_RECENT_NAMES)
+    }
+    this.persistRecentNames()
+  }
+
+  private async persistRecentNames(): Promise<void> {
+    if (!this.dataPrefs) return
+    try {
+      await this.dataPrefs.put(RECENT_NAMES_KEY, JSON.stringify(this.recentNames))
+      await this.dataPrefs.flush()
+    } catch (err) {
+      console.error('Failed to persist recent names:', JSON.stringify(err))
     }
   }
 

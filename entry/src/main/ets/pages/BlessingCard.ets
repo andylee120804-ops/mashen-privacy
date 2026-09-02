@@ -1,7 +1,9 @@
 import { PrayerViewModel } from '../viewmodels/PrayerViewModel'
 import { ParticleCanvas, ParticleType } from '../components/ParticleCanvas'
 import { TipModal } from '../components/TipModal'
+import { MahjongTile } from '../components/MahjongTile'
 import { AudioManager } from '../service/AudioManager'
+import { SCENE_DEFS, SceneDef } from '../model/FortuneTypes'
 import { router } from '@kit.ArkUI'
 
 /**
@@ -90,13 +92,17 @@ struct BlessingCard {
 
         // ── 主位令牌（红底金字金边）──
         Row() {
-          Text(`🪷  ${this.viewModel.todayDeity.name} · ${this.viewModel.todayDeity.direction}主位  🪷`)
+          MahjongTile({ icon: '🀅', tileSize: 26 })
+          Text(`${this.viewModel.todayDeity.name} · ${this.viewModel.todayDeity.direction}主位`)
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
             .fontColor('#fdf6e3')
             .letterSpacing(1)
+            .margin({ left: 12, right: 12 })
+          MahjongTile({ icon: '🀅', tileSize: 26 })
         }
-        .padding({ left: 24, right: 24, top: 10, bottom: 10 })
+        .justifyContent(FlexAlign.Center)
+        .padding({ left: 20, right: 20, top: 10, bottom: 10 })
         .backgroundColor('#c0392b')
         .border({ width: 1.5, color: '#f9ca24', radius: 6 })
         .shadow({ radius: 18, color: 'rgba(192, 57, 43, 0.6)', offsetY: 4 })
@@ -136,7 +142,7 @@ struct BlessingCard {
               // 贺词与正文之间的钻石分隔
               Text('◆  ◆  ◆')
                 .fontSize(11)
-                .fontColor('rgba(249, 202, 36, 0.55)')
+                .fontColor('rgba(249, 202, 36, 0.6)')
                 .letterSpacing(6)
                 .margin({ bottom: 14 })
 
@@ -152,10 +158,18 @@ struct BlessingCard {
                 .letterSpacing(1)
                 .margin({ bottom: 14 })
 
+              // 场景祝福（v1.3.0 场景矩阵）
+              Text(this.getSceneLine())
+                .fontSize(14)
+                .fontColor('rgba(249, 202, 36, 0.85)')
+                .textAlign(TextAlign.Center)
+                .width('100%')
+                .margin({ bottom: 12 })
+
               // 正文与尾联之间的钻石分隔
               Text('◆  ◆  ◆')
                 .fontSize(11)
-                .fontColor('rgba(249, 202, 36, 0.55)')
+                .fontColor('rgba(249, 202, 36, 0.6)')
                 .letterSpacing(6)
                 .margin({ bottom: 12 })
 
@@ -174,11 +188,17 @@ struct BlessingCard {
                 .backgroundColor('rgba(249, 202, 36, 0.35)')
                 .margin({ top: 16, bottom: 14 })
 
-              // 麻将吉牌
-              Text('🀇   🀅   🀄   🀅   🀇')
-                .fontSize(22)
-                .letterSpacing(6)
-                .opacity(0.85)
+              // 麻将吉牌（五张独立牌面，金底高对比）
+              Row() {
+                MahjongTile({ icon: '🀇', tileSize: 24 })
+                MahjongTile({ icon: '🀅', tileSize: 24 }).margin({ left: 6 })
+                MahjongTile({ icon: '🀅', tileSize: 24 }).margin({ left: 6 })
+                MahjongTile({ icon: '🀅', tileSize: 24 }).margin({ left: 6 })
+                MahjongTile({ icon: '🀇', tileSize: 24 }).margin({ left: 6 })
+              }
+              .width('100%')
+              .justifyContent(FlexAlign.Center)
+              .opacity(0.85)
             }
             .width('100%')
             .padding({ left: 22, right: 22, top: 22, bottom: 18 })
@@ -256,7 +276,7 @@ struct BlessingCard {
         // ── 返回首页 ──
         Button('返回首页')
           .fontSize(13)
-          .fontColor('rgba(253, 246, 227, 0.45)')
+          .fontColor('rgba(253, 246, 227, 0.5)')
           .backgroundColor('transparent')
           .opacity(this.buttonsShown ? 1 : 0)
           .onClick(() => {
@@ -276,5 +296,22 @@ struct BlessingCard {
     }
     .width('100%')
     .height('100%')
+  }
+
+  /** 场景祝福行：`✨ {场景名} · {场景祝福语}`，按日期+总祈福次数确定性取 */
+  private getSceneLine(): string {
+    const scene = SCENE_DEFS.find((s: SceneDef): boolean => s.id === this.viewModel.sceneId)
+    if (!scene || scene.blessings.length === 0) {
+      return ''
+    }
+    const dayOfYear = this.getDayOfYear()
+    const idx = (dayOfYear + this.viewModel.totalPrayers) % scene.blessings.length
+    return `✨ ${scene.name} · ${scene.blessings[idx]}`
+  }
+
+  private getDayOfYear(): number {
+    const now = new Date()
+    const start = new Date(now.getFullYear(), 0, 0)
+    return Math.floor((now.getTime() - start.getTime()) / 86400000)
   }
 }
