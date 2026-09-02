@@ -162,7 +162,7 @@ struct CustomizePage {
     Row() {
       Text('≡')
         .fontSize(18)
-        .fontColor('rgba(253, 246, 227, 0.35)')
+        .fontColor('rgba(253, 246, 227, 0.45)')
         .width(26)
         .textAlign(TextAlign.Center)
 
