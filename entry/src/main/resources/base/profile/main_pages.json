@@ -5,6 +5,7 @@
     "pages/NameCard",
     "pages/PrayerCard",
     "pages/BlessingCard",
-    "pages/EntryShell"
+    "pages/EntryShell",
+    "pages/CustomizePage"
   ]
 }
