@@ -6,8 +6,9 @@ import { LeaderboardItem } from '../components/LeaderboardItem'
 @Component
 export struct LeaderboardPage {
   @State entries: LeaderboardEntry[] = []
-  @State currentType: LeaderboardType = LeaderboardType.DAILY
+  @State currentType: LeaderboardType = LeaderboardType.TOTAL
   @State loading: boolean = false
+  @StorageLink('deviceUserId') deviceUserId: string = ''
   @State myEntry: LeaderboardEntry = { userId: '', nickname: '', count: 0, kowtow: 0, rank: 0 }
   @State hasMyEntry: boolean = false
 
@@ -36,14 +37,18 @@ export struct LeaderboardPage {
 
   build() {
     Column() {
-      // 标题
-      Text('🏆 祈福排行榜')
-        .fontSize(20)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#f9ca24')
-        .width('100%')
-        .padding({ left: 20, top: 12, bottom: 8 })
-        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+      // 标题（Tab 模式直接展示；独立模式由 EntryShell 提供返回头）
+      Row() {
+        Blank()
+        Text('🏆 祈福排行榜')
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#f9ca24')
+        Blank()
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 44, bottom: 10 })
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
 
       // 榜单切换
       Row() {
@@ -73,10 +78,10 @@ export struct LeaderboardPage {
           Text('🏆')
             .fontSize(40)
             .margin({ bottom: 8 })
-          Text('暂无排行数据')
+          Text(this.getEmptyTitle())
             .fontSize(14)
             .fontColor('rgba(253, 246, 227, 0.5)')
-          Text('快去祈福上榜吧！')
+          Text(this.getEmptySubtitle())
             .fontSize(14)
             .fontColor('rgba(253, 246, 227, 0.5)')
             .margin({ top: 4 })
@@ -87,7 +92,7 @@ export struct LeaderboardPage {
         Scroll() {
           Column() {
             ForEach(this.entries, (entry: LeaderboardEntry) => {
-              LeaderboardItem({ entry: entry, isMe: false })
+              LeaderboardItem({ entry: entry, isMe: entry.userId === this.deviceUserId })
             })
 
             // 我的排名（不在前 50 时单独展示）
@@ -100,7 +105,7 @@ export struct LeaderboardPage {
 
               Text('我的排名')
                 .fontSize(11)
-                .fontColor('rgba(253, 246, 227, 0.4)')
+                .fontColor('rgba(253, 246, 227, 0.5)')
                 .width('90%')
                 .margin({ bottom: 4 })
 
@@ -111,21 +116,43 @@ export struct LeaderboardPage {
           .alignItems(HorizontalAlign.Center)
         }
         .layoutWeight(1)
+        .edgeEffect(EdgeEffect.Spring)
         .scrollBar(BarState.Off)
       }
 
       // 刷新按钮
-      Button('🔄 刷新')
+      Button('↻ 刷新')
         .fontSize(12)
-        .fontColor('rgba(249, 202, 36, 0.6)')
+        .fontColor('rgba(249, 202, 36, 0.7)')
         .backgroundColor('transparent')
-        .margin({ bottom: 12 })
         .onClick(() => { this.loadData() })
     }
     .width('100%')
     .height('100%')
     .backgroundColor('#1a1a0a')
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
+    // 沉浸式全屏下底部内容需避让系统导航条（≥28vp）：根容器下边距留足
+    .padding({ bottom: 72 })
+  }
+
+  private getEmptyTitle(): string {
+    if (this.currentType === LeaderboardType.DAILY) {
+      return '今天还没人祈福'
+    }
+    if (this.currentType === LeaderboardType.WEEKLY) {
+      return '本周还没人祈福'
+    }
+    return '暂无排行数据'
+  }
+
+  private getEmptySubtitle(): string {
+    if (this.currentType === LeaderboardType.DAILY) {
+      return '快去祈福，抢占今日榜首吧！'
+    }
+    if (this.currentType === LeaderboardType.WEEKLY) {
+      return '快去祈福，抢占本周榜首吧！'
+    }
+    return '快去祈福上榜吧！'
   }
 
   @Builder
