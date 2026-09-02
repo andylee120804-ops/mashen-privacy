@@ -1,0 +1,797 @@
+// entry/src/main/ets/pages/QiuQian.ets
+// 求签 tab：摇晃手机求签（每次独立随机抽签，36 签真随机）。
+// 动画模拟「抱机磕头 + 摇晃出签」：三拜 → 摇签筒 → 签支弹出 → 签文翻牌揭晓。
+// 仅靠摇晃手机触发（无按钮）；揭签后可解签 / 去祈福 / 再求一签。
+import { SignEntry, SignLevel, SIGN_TABLE } from '../model/CultureContent'
+import { PrayerViewModel } from '../viewmodels/PrayerViewModel'
+import { ParticleCanvas, ParticleType } from '../components/ParticleCanvas'
+import { pasteboard } from '@kit.BasicServicesKit'
+import { router } from '@kit.ArkUI'
+import { sensor, vibrator } from '@kit.SensorServiceKit'
+
+/** 吉凶等级 → 颜色（深底 #1a1a0a / #241f12 上 ≥4.5:1；浅色签纸不用本表，见 SignPaperCard） */
+const LEVEL_COLOR: Record<string, string> = {
+  '上上签': '#d4a017',
+  '上吉签': '#2ecc71',
+  '中吉签': '#3a8fd4',
+  '中平签': '#9a9a9a',
+  '下签': '#f0533f'
+}
+
+/** 求签流程阶段 */
+enum QiuPhase {
+  IDLE = 0,    // 待求签
+  KOWTOW = 1,  // 三拜
+  SHAKING = 2, // 摇签筒
+  LAUNCH = 3,  // 签支弹出
+  REVEAL = 4   // 签文揭晓
+}
+
+// ── 动画参数 ──
+const QIUQIAN_ENTRY_ID = 'qiuqian'
+const KOWTOW_BOWS = 3
+const BOW_ANGLE = 16              // 一拜俯身角度（°）
+const BOW_HOLD_MS = 300           // 俯身停留
+const BOW_GAP_MS = 220            // 拜与拜之间停顿
+const SHAKE_STEPS = 10            // 摇晃摆动次数
+const SHAKE_STEP_MS = 90          // 每次摆动间隔
+const SHAKE_ANGLE = 11            // 摆动幅度（°）
+const LAUNCH_RISE = -185          // 签支弹出上升距离
+const LAUNCH_MS = 820             // 弹出阶段时长
+// ── 摇晃检测参数（加速度计）──
+// 用「合加速度偏离重力 + 迟滞翻转计数」检测：摇晃一个来回 = 合加速度在
+// 高于/低于重力之间翻转一次。拿手机/旋转时合加速度始终≈9.8 不翻转，
+// 普通走路摆幅 <4 也不翻转；只有真实摇晃才累积翻转次数并出签。
+const GRAVITY = 9.8               // 重力加速度 m/s²
+const SHAKE_HYST = 4              // 翻转迟滞幅度（偏离重力阈值，真机校准值）
+const SHAKE_WINDOW_MS = 2000      // 翻转统计窗口（放宽以兼容较慢的摇晃节奏）
+const SHAKE_FLIPS = 3             // 窗口内翻转次数即出签（约 1.5 个来回）
+const SHAKE_COOLDOWN_MS = 2000    // 触发后冷却，防连击
+// 摇晃同步触感：每记一次翻转给一记轻震，最短间隔防连震
+const FLIP_VIBRATE_MS = 22
+const FLIP_VIBRATE_GAP_MS = 120
+
+const STICK_COUNT = 14
+
+/** 签支束扇开角度：从负到正均匀分布 */
+function buildStickAngles(): number[] {
+  const angles: number[] = []
+  for (let i = 0; i < STICK_COUNT; i++) {
+    angles.push((i - (STICK_COUNT - 1) / 2) * 2.6)
+  }
+  return angles
+}
+
+@Component
+export struct QiuQianPage {
+  @StorageLink('viewModel') viewModel: PrayerViewModel = new PrayerViewModel()
+  /** 当前激活入口 id（MainTabs onChange / EntryShell aboutToAppear 写入），仅在本入口激活时响应摇晃 */
+  @StorageLink('activeEntryId') @Watch('onSensorGateChanged') activeEntryId: string = ''
+  /** App 前后台状态（EntryAbility onForeground/onBackground 写入）：
+   *  退后台禁止占用传感器，必须与 activeEntryId 一起门控加速度计订阅 */
+  @StorageLink('appInForeground') @Watch('onSensorGateChanged') appInForeground: boolean = true
+  @State sign: SignEntry = SIGN_TABLE[0]
+  @State phase: QiuPhase = QiuPhase.IDLE
+  @State bowAngle: number = 0
+  @State shakeAngle: number = 0
+  @State bowIndex: number = 0
+  @State stickRiseY: number = 0
+  @State stageOpacity: number = 1
+  @State cardFlipAngle: number = 90
+  @State cardOpacity: number = 0
+  @State showSignDetail: boolean = false
+  private stickAngles: number[] = buildStickAngles()
+  private timers: number[] = []
+  private shakeTimerId: number = -1
+  private sensorOn: boolean = false
+  private leaving: boolean = false
+  // 摇晃检测状态（迟滞翻转计数）
+  private aboveThreshold: boolean = false
+  private belowThreshold: boolean = false
+  private flipTimes: number[] = []
+  private drawCooldownUntil: number = 0
+  private lastFlipVibrateMs: number = 0
+
+  aboutToAppear(): void {
+    // 传感器订阅由 syncSensorState 统一门控（前台 + 求签 tab 激活才占用）
+    this.syncSensorState()
+  }
+
+  aboutToDisappear(): void {
+    this.leaving = true
+    this.clearAllTimers()
+    this.unregisterShakeSensor()
+  }
+
+  /** 真随机抽签：每次求签独立随机（36 签等概率） */
+  private drawSign(): void {
+    this.sign = SIGN_TABLE[Math.floor(Math.random() * SIGN_TABLE.length)]
+  }
+
+  // ── 摇晃手机检测 ──
+
+  /**
+   * 传感器门控：仅在前台 + 求签 tab 激活时订阅加速度计。
+   * 退后台（appInForeground=false）或切走入口（activeEntryId≠求签）立即注销，
+   * 满足「应用退后台禁止使用传感器」审核标准，同时省电。
+   */
+  private onSensorGateChanged(): void {
+    this.syncSensorState()
+  }
+
+  private syncSensorState(): void {
+    // 不依赖 leaving：leaving 仅在页面销毁时置 true 且不重置，
+    // 若 Tab 切换触发 aboutToAppear/aboutToDisappear 会误挡恢复。
+    const shouldRun = this.appInForeground && this.activeEntryId === QIUQIAN_ENTRY_ID
+    if (shouldRun && !this.sensorOn) {
+      this.registerShakeSensor()
+    } else if (!shouldRun && this.sensorOn) {
+      this.unregisterShakeSensor()
+    }
+  }
+
+  private registerShakeSensor(): void {
+    try {
+      // interval 'game' = 20ms 采样：默认 200ms 采样会把摇晃周期混叠掉，检测不到
+      sensor.on(sensor.SensorId.ACCELEROMETER, (data: sensor.AccelerometerResponse): void => {
+        this.onAccelData(data)
+      }, { interval: 'game' })
+      this.sensorOn = true
+      console.info('[QiuQian] shake sensor registered (interval=game)')
+    } catch (err) {
+      // 部分设备/模拟器无传感器：静默降级
+      console.error('[QiuQian] sensor.on failed:', JSON.stringify(err))
+    }
+  }
+
+  private unregisterShakeSensor(): void {
+    if (!this.sensorOn) return
+    try {
+      sensor.off(sensor.SensorId.ACCELEROMETER)
+    } catch (err) {
+      console.error('[QiuQian] sensor.off failed:', JSON.stringify(err))
+    }
+    this.sensorOn = false
+  }
+
+  private onAccelData(data: sensor.AccelerometerResponse): void {
+    if (this.leaving || this.activeEntryId !== QIUQIAN_ENTRY_ID) return
+    if (this.phase !== QiuPhase.IDLE) return
+    const now = Date.now()
+    if (now < this.drawCooldownUntil) return
+
+    // 合加速度：拿起手机/缓慢旋转时其值仍≈重力
+    const magnitude = Math.sqrt(data.x * data.x + data.y * data.y + data.z * data.z)
+    const diff = magnitude - GRAVITY
+
+    // 翻转窗口超时 → 清空重计
+    this.flipTimes = this.flipTimes.filter((t: number): boolean => now - t < SHAKE_WINDOW_MS)
+
+    // 迟滞翻转计数：diff 越过 +HYST 或 -HYST 记为一次方向变化
+    let flipped = false
+    if (diff > SHAKE_HYST) {
+      if (this.belowThreshold) {
+        flipped = true
+      }
+      this.aboveThreshold = true
+      this.belowThreshold = false
+    } else if (diff < -SHAKE_HYST) {
+      if (this.aboveThreshold) {
+        flipped = true
+      }
+      this.belowThreshold = true
+      this.aboveThreshold = false
+    }
+
+    if (flipped) {
+      this.flipTimes.push(now)
+      // 同步触感：每摇一个来回给一记轻震（最短间隔限流，防止连震过密）
+      if (now - this.lastFlipVibrateMs >= FLIP_VIBRATE_GAP_MS) {
+        this.lastFlipVibrateMs = now
+        this.vibrate(FLIP_VIBRATE_MS)
+      }
+    }
+
+    if (this.flipTimes.length >= SHAKE_FLIPS) {
+      this.flipTimes = []
+      this.aboveThreshold = false
+      this.belowThreshold = false
+      this.drawCooldownUntil = now + SHAKE_COOLDOWN_MS
+      // 出签瞬间强震确认
+      this.vibrate(90)
+      this.startDraw()
+    }
+  }
+
+  // ── 求签动画序列 ──
+
+  /** 开始求签（摇晃触发） */
+  private startDraw(): void {
+    if (this.phase !== QiuPhase.IDLE || this.leaving) return
+    this.drawSign()
+    this.phase = QiuPhase.KOWTOW
+    this.bowIndex = 0
+    this.performBow(0)
+  }
+
+  /** 一拜：俯身 → 回正；三拜后进入摇签 */
+  private performBow(idx: number): void {
+    if (this.leaving || this.phase !== QiuPhase.KOWTOW) return
+    this.bowIndex = idx + 1
+    this.vibrate(35)
+    this.bowAngle = BOW_ANGLE
+    this.after(BOW_HOLD_MS, (): void => {
+      this.bowAngle = 0
+      if (idx + 1 >= KOWTOW_BOWS) {
+        this.after(BOW_GAP_MS, (): void => {
+          this.startShake()
+        })
+      } else {
+        this.after(BOW_GAP_MS, (): void => {
+          this.performBow(idx + 1)
+        })
+      }
+    })
+  }
+
+  /** 摇签筒：左右快速摆动，之后签支弹出 */
+  private startShake(): void {
+    if (this.leaving || this.phase !== QiuPhase.KOWTOW) return
+    this.phase = QiuPhase.SHAKING
+    let step = 0
+    this.shakeTimerId = setInterval((): void => {
+      if (this.leaving || this.phase !== QiuPhase.SHAKING) {
+        clearInterval(this.shakeTimerId)
+        this.shakeTimerId = -1
+        return
+      }
+      step += 1
+      if (step > SHAKE_STEPS) {
+        clearInterval(this.shakeTimerId)
+        this.shakeTimerId = -1
+        this.shakeAngle = 0
+        this.beginLaunch()
+        return
+      }
+      this.shakeAngle = (step % 2 === 0) ? -SHAKE_ANGLE : SHAKE_ANGLE
+      if (step % 2 === 1) {
+        this.vibrate(40)
+      }
+    }, SHAKE_STEP_MS)
+  }
+
+  /** 签支弹出：从签筒中升起 */
+  private beginLaunch(): void {
+    if (this.leaving) return
+    this.phase = QiuPhase.LAUNCH
+    this.vibrate(70)
+    this.stickRiseY = 100
+    this.after(30, (): void => {
+      this.stickRiseY = LAUNCH_RISE
+    })
+    this.after(LAUNCH_MS, (): void => {
+      this.showReveal()
+    })
+  }
+
+  /** 揭晓签文：签筒淡出、签纸翻牌入 */
+  private showReveal(): void {
+    if (this.leaving) return
+    this.phase = QiuPhase.REVEAL
+    this.stageOpacity = 0
+    this.cardOpacity = 1
+    this.cardFlipAngle = 0
+  }
+
+  /** 跳过动画直接看签 */
+  private skipToReveal(): void {
+    if (this.leaving || this.phase === QiuPhase.REVEAL) return
+    this.clearAllTimers()
+    this.shakeAngle = 0
+    this.bowAngle = 0
+    this.showReveal()
+  }
+
+  /** 再求一签：回到待求签初始状态 */
+  private resetDraw(): void {
+    if (this.leaving) return
+    this.clearAllTimers()
+    this.showSignDetail = false
+    this.phase = QiuPhase.IDLE
+    this.cardOpacity = 0
+    this.cardFlipAngle = 90
+    this.stageOpacity = 1
+    this.stickRiseY = 0
+    this.shakeAngle = 0
+    this.bowAngle = 0
+  }
+
+  /** 去祈福：进入祈福流程（NameCard → PrayerCard） */
+  private goPray(): void {
+    this.showSignDetail = false
+    this.viewModel.startPrayer()
+    setTimeout((): void => {
+      this.getUIContext().getRouter().pushUrl({ url: 'pages/NameCard' }, router.RouterMode.Standard)
+    }, 0)
+  }
+
+  private copySignText(): void {
+    const text = `【${this.sign.level}】${this.sign.title}\n${this.sign.poem}\n解签：${this.sign.interpretation}\n建议：${this.sign.advice}\n——来自麻神祈福`
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text)
+      pasteboard.getSystemPasteboard().setData(data)
+      this.getUIContext().getPromptAction().showToast({ message: '签文已复制，可分享给牌友 🙏' })
+    } catch (err) {
+      console.error('[QiuQian] copy failed:', JSON.stringify(err))
+      this.getUIContext().getPromptAction().showToast({ message: '复制失败，请重试' })
+    }
+  }
+
+  // ── 工具 ──
+
+  private vibrate(duration: number): void {
+    try {
+      vibrator.startVibration({
+        type: 'time',
+        duration: duration
+      }, { id: 0, usage: 'unknown' })
+    } catch (err) {
+      console.error('[QiuQian] vibrate failed:', JSON.stringify(err))
+    }
+  }
+
+  private after(ms: number, fn: () => void): void {
+    this.timers.push(setTimeout(fn, ms))
+  }
+
+  private clearAllTimers(): void {
+    for (const id of this.timers) {
+      clearTimeout(id)
+    }
+    this.timers = []
+    if (this.shakeTimerId !== -1) {
+      clearInterval(this.shakeTimerId)
+      this.shakeTimerId = -1
+    }
+  }
+
+  private getLevelColor(level: SignLevel): string {
+    return LEVEL_COLOR[level] || '#9a9a9a'
+  }
+
+  private statusText(): string {
+    switch (this.phase) {
+      case QiuPhase.KOWTOW:
+        return `诚心叩拜 · 第 ${this.bowIndex} / ${KOWTOW_BOWS} 拜`
+      case QiuPhase.SHAKING:
+        return '签筒摇动 · 静候神示'
+      case QiuPhase.LAUNCH:
+        return '出签！'
+      case QiuPhase.REVEAL:
+        return `第 ${this.sign.id} 签 · ${this.sign.level}`
+      default:
+        return '双手持机 · 摇晃手机出签'
+    }
+  }
+
+  build() {
+    Stack() {
+      // 背景
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#1a1a0a')
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
+
+      // 揭签后金色粒子氛围
+      ParticleCanvas({
+        particleType: ParticleType.GOLD,
+        isActive: this.phase === QiuPhase.REVEAL
+      })
+
+      // 顶部标题
+      Column() {
+        Text('🎋 求签问运')
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#f9ca24')
+        Text('摇晃手机出签 · 心诚则灵')
+          .fontSize(11)
+          .fontColor('rgba(253, 246, 227, 0.5)')
+          .margin({ top: 4 })
+      }
+      .position({ x: '50%', y: 58 })
+      .translate({ x: '-50%', y: '0' })
+
+      // 主舞台：签筒 / 签文
+      Column() {
+        this.StageView()
+        Text(this.statusText())
+          .fontSize(13)
+          .fontColor(this.phase === QiuPhase.REVEAL ? '#f9ca24' : 'rgba(253, 246, 227, 0.6)')
+          .margin({ top: 10 })
+      }
+      .position({ x: '50%', y: '48%' })
+      .translate({ x: '-50%', y: '-50%' })
+
+      // 底部操作区
+      Column() {
+        if (this.phase === QiuPhase.IDLE) {
+          // 无按钮：仅摇晃出签
+          Text('📳')
+            .fontSize(26)
+          Text('双手持机，摇晃手机出签')
+            .fontSize(13)
+            .fontColor('rgba(249, 202, 36, 0.75)')
+            .margin({ top: 8 })
+          Text('摇得越诚心 · 签文越灵验')
+            .fontSize(11)
+            .fontColor('rgba(253, 246, 227, 0.5)')
+            .margin({ top: 6 })
+        } else if (this.phase === QiuPhase.REVEAL) {
+          Row() {
+            Button('📜 解签详情')
+              .fontSize(14)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#f9ca24')
+              .backgroundColor('rgba(249, 202, 36, 0.12)')
+              .border({ width: 1, color: '#f9ca24' })
+              .borderRadius(22)
+              .layoutWeight(1)
+              .padding({ top: 11, bottom: 11 })
+              .onClick((): void => { this.showSignDetail = true })
+            Button('🎋 再求一签')
+              .fontSize(14)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#f9ca24')
+              .backgroundColor('rgba(249, 202, 36, 0.12)')
+              .border({ width: 1, color: '#f9ca24' })
+              .borderRadius(22)
+              .layoutWeight(1)
+              .margin({ left: 12 })
+              .padding({ top: 11, bottom: 11 })
+              .onClick((): void => { this.resetDraw() })
+          }
+          .width('76%')
+
+          Button('🙏 去祈福')
+            .fontSize(15)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#1a1a0a')
+            .backgroundColor('#f9ca24')
+            .borderRadius(22)
+            .width('76%')
+            .margin({ top: 12 })
+            .padding({ top: 11, bottom: 11 })
+            .onClick((): void => { this.goPray() })
+        } else {
+          Text('跳过动画 · 直接看签 ›')
+            .fontSize(12)
+            .fontColor('rgba(253, 246, 227, 0.5)')
+            .padding({ top: 8, bottom: 8, left: 16, right: 16 })
+            .onClick((): void => { this.skipToReveal() })
+        }
+      }
+      .position({ x: '50%', y: '86%' })
+      .translate({ x: '-50%', y: '-50%' })
+
+      // 解签详情覆层（纯页面覆层，收下确定性关闭）
+      if (this.showSignDetail) {
+        this.SignDetailOverlay()
+      }
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  /** 主舞台：签筒（求签过程）或签纸（已揭晓） */
+  @Builder
+  StageView() {
+    Stack({ alignContent: Alignment.Center }) {
+      if (this.phase !== QiuPhase.REVEAL) {
+        // 磕头（绕 X 轴俯身，有动画）→ 淡出 → 摇晃（绕 Z 轴，无动画瞬时摆动）
+        Column() {
+          Column() {
+            Column() {
+              this.TubeView()
+            }
+            .rotate({ z: 1, centerX: '50%', centerY: '100%', angle: this.shakeAngle })
+          }
+          .opacity(this.stageOpacity)
+          .animation({ duration: 300, curve: Curve.EaseInOut })
+        }
+        .rotate({ x: 1, centerX: '50%', centerY: '100%', angle: this.bowAngle })
+        .animation({ duration: BOW_HOLD_MS, curve: Curve.EaseInOut })
+      }
+
+      // 弹出签支（仅 LAUNCH 阶段渲染，从签筒中升起）
+      if (this.phase === QiuPhase.LAUNCH) {
+        Column() {
+          this.SignStick(1, 0)
+        }
+        .translate({ y: this.stickRiseY })
+        .animation({ duration: LAUNCH_MS - 60, curve: Curve.EaseOut })
+      }
+
+      // 签纸（REVEAL 阶段：翻牌入场）
+      if (this.phase === QiuPhase.REVEAL) {
+        this.SignPaperCard()
+      }
+    }
+    .width('100%')
+    .height(360)
+  }
+
+  /** 签筒 + 签支束（红漆圆柱筒身 + 金口 + 流苏；红漆竹签扇开） */
+  @Builder
+  TubeView() {
+    Column() {
+      // 签支束（扇开，底端沉入筒口）
+      Row() {
+        ForEach(this.stickAngles, (angle: number, index: number) => {
+          this.SignStick(index, angle)
+        }, (angle: number, index: number): string => `stick_${index}`)
+      }
+      .height(92)
+      .alignItems(VerticalAlign.Bottom)
+      .justifyContent(FlexAlign.Center)
+      .margin({ bottom: -24 })
+
+      // 筒身：三段收窄成圆底，左右暗中间亮模拟圆柱圆润
+      Stack() {
+        Column()
+          .width(146)
+          .height(46)
+          .margin({ top: 12 })
+          .linearGradient({
+            direction: GradientDirection.Right,
+            colors: [['#541d17', 0], ['#9a3628', 0.3], ['#cf5438', 0.5], ['#9a3628', 0.7], ['#541d17', 1]]
+          })
+        Column()
+          .width(138)
+          .height(44)
+          .margin({ top: 50 })
+          .linearGradient({
+            direction: GradientDirection.Right,
+            colors: [['#541d17', 0], ['#9a3628', 0.3], ['#cf5438', 0.5], ['#9a3628', 0.7], ['#541d17', 1]]
+          })
+        Column()
+          .width(128)
+          .height(52)
+          .margin({ top: 86 })
+          .borderRadius({ bottomLeft: 28, bottomRight: 28 })
+          .linearGradient({
+            direction: GradientDirection.Right,
+            colors: [['#541d17', 0], ['#9a3628', 0.3], ['#cf5438', 0.5], ['#9a3628', 0.7], ['#541d17', 1]]
+          })
+        // 筒身金饰带
+        Column()
+          .width(138)
+          .height(5)
+          .margin({ top: 102 })
+          .backgroundColor('#f9ca24')
+          .opacity(0.85)
+        // 筒口内沿（深色口，签支插在里面）
+        Column()
+          .width(126)
+          .height(16)
+          .margin({ top: 16 })
+          .backgroundColor('#2a0e0a')
+          .borderRadius(7)
+        // 筒口金环
+        Column()
+          .width(152)
+          .height(16)
+          .borderRadius({ topLeft: 8, topRight: 8 })
+          .linearGradient({
+            direction: GradientDirection.Right,
+            colors: [['#6e521a', 0], ['#f6d578', 0.5], ['#6e521a', 1]]
+          })
+        // 筒身金字
+        Text('签')
+          .fontSize(40)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#f9ca24')
+          .position({ x: 56, y: 40 })
+        Text('诚心求签')
+          .fontSize(10)
+          .fontColor('rgba(249, 202, 36, 0.8)')
+          .position({ x: 53, y: 88 })
+        // 流苏（垂在筒身右下）
+        Column() {
+          Column()
+            .width(10)
+            .height(12)
+            .backgroundColor('#f9ca24')
+            .borderRadius(5)
+          Row() {
+            ForEach([0, 1, 2, 3], (i: number): void => {
+              Column()
+                .width(2.4)
+                .height(22 + (i % 2) * 6)
+                .margin({ left: i === 0 ? 0 : 2 })
+                .backgroundColor('#d1452f')
+                .borderRadius(1.2)
+            }, (i: number): string => `tassel_${i}`)
+          }
+        }
+        .position({ x: 124, y: 96 })
+      }
+      .width(152)
+      .height(138)
+      .shadow({ radius: 26, color: 'rgba(0, 0, 0, 0.55)', offsetY: 8 })
+    }
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  /** 单支签：红漆半圆签头 + 竹身渐变（替代原"火柴"造型：金圆头 + 细签身）
+   *  angle 为扇开角度（LAUNCH 弹出时传 0 不旋转），旋转轴在签根，让扇面从筒口张开 */
+  @Builder
+  SignStick(index: number, angle: number) {
+    Column() {
+      // 红漆签头（半圆顶）
+      Column()
+        .width(9)
+        .height(15)
+        .borderRadius({ topLeft: 4.5, topRight: 4.5, bottomLeft: 2, bottomRight: 2 })
+        .linearGradient({
+          direction: GradientDirection.Right,
+          colors: [['#7e2417', 0], ['#d1452f', 0.55], ['#8e2a1d', 1]]
+        })
+      // 竹签身（渐变圆润，长短略异更自然）
+      Column()
+        .width(9)
+        .height(50 + (index % 3) * 6)
+        .borderRadius({ bottomLeft: 3.5, bottomRight: 3.5 })
+        .linearGradient({
+          direction: GradientDirection.Right,
+          colors: [['#cfae72', 0], ['#f6e3b4', 0.5], ['#cfae72', 1]]
+        })
+    }
+    .rotate({ z: 1, centerX: '50%', centerY: '100%', angle: angle })
+  }
+
+  /** 签纸卡片：签号/吉凶/签名/签诗，翻牌动画，点击看解签 */
+  @Builder
+  SignPaperCard() {
+    Column() {
+      Text(`第 ${this.sign.id} 签`)
+        .fontSize(11)
+        .fontColor('#a0342b')
+      Text(this.sign.level)
+        .fontSize(22)
+        .fontWeight(FontWeight.Bold)
+        // 浅色签纸用深色油墨（LEVEL_COLOR 的亮色在 #f5e6c8 上对比度不足 3:1）
+        .fontColor('#4a3520')
+        .margin({ top: 6 })
+      Text(this.sign.title)
+        .fontSize(17)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#4a3520')
+        .margin({ top: 8 })
+      Text('· ─ ─ ─ ·')
+        .fontSize(11)
+        .fontColor('#a0342b')
+        .margin({ top: 10, bottom: 10 })
+      Text(this.sign.poem)
+        .fontSize(14)
+        .fontStyle(FontStyle.Italic)
+        .fontColor('#4a3520')
+        .textAlign(TextAlign.Center)
+        .lineHeight(22)
+      // 朱印
+      Stack() {
+        Circle({ width: 46, height: 46 })
+          .fill('#c0392b')
+        Text(this.sign.level.replace('签', ''))
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#fdf6e3')
+      }
+      .margin({ top: 14 })
+    }
+    .width('56%')
+    .padding({ top: 24, bottom: 24, left: 18, right: 18 })
+    .backgroundColor('#f5e6c8')
+    .border({ width: 2, color: '#c04a32', radius: 12 })
+    .shadow({ radius: 28, color: 'rgba(0, 0, 0, 0.55)', offsetY: 10 })
+    .opacity(this.cardOpacity)
+    .rotate({ y: 1, angle: this.cardFlipAngle })
+    .animation({ duration: 550, curve: Curve.Friction })
+    .onClick((): void => { this.showSignDetail = true })
+  }
+
+  /** 解签详情覆层（点击遮罩或收下即关） */
+  @Builder
+  SignDetailOverlay() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0, 0, 0, 0.65)')
+        .onClick((): void => { this.showSignDetail = false })
+
+      Column() {
+        Row() {
+          Text(`第 ${this.sign.id} 签`)
+            .fontSize(12)
+            .fontColor('rgba(253, 246, 227, 0.5)')
+          Blank()
+          Text(this.sign.level)
+            .fontSize(13)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.getLevelColor(this.sign.level))
+            .padding({ left: 10, right: 10, top: 3, bottom: 3 })
+            .border({ width: 1, color: this.getLevelColor(this.sign.level), radius: 12 })
+        }
+        .width('100%')
+
+        Text(this.sign.title)
+          .fontSize(22)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#f9ca24')
+          .margin({ top: 16 })
+
+        Text(this.sign.poem)
+          .fontSize(16)
+          .fontColor('#fdf6e3')
+          .fontStyle(FontStyle.Italic)
+          .textAlign(TextAlign.Center)
+          .margin({ top: 10 })
+
+        Text(`解签：${this.sign.interpretation}`)
+          .fontSize(13)
+          .fontColor('rgba(253, 246, 227, 0.85)')
+          .lineHeight(20)
+          .margin({ top: 16 })
+
+        Text(`今日建议：${this.sign.advice}`)
+          .fontSize(12)
+          .fontColor('rgba(249, 202, 36, 0.8)')
+          .lineHeight(19)
+          .margin({ top: 10 })
+
+        Row() {
+          Button('复制签文')
+            .fontSize(12)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#fdf6e3')
+            .backgroundColor('rgba(249, 202, 36, 0.15)')
+            .borderRadius(18)
+            .layoutWeight(1)
+            .padding({ top: 10, bottom: 10 })
+            .onClick((): void => { this.copySignText() })
+          Button('收下')
+            .fontSize(12)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#1a1a0a')
+            .backgroundColor('#f9ca24')
+            .borderRadius(18)
+            .layoutWeight(1)
+            .margin({ left: 10 })
+            .padding({ top: 10, bottom: 10 })
+            .onClick((): void => { this.showSignDetail = false })
+          Button('去祈福')
+            .fontSize(12)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#1a1a0a')
+            .backgroundColor('#f9ca24')
+            .borderRadius(18)
+            .layoutWeight(1)
+            .margin({ left: 10 })
+            .padding({ top: 10, bottom: 10 })
+            .onClick((): void => { this.goPray() })
+        }
+        .width('100%')
+        .margin({ top: 20 })
+      }
+      .width('82%')
+      .padding(24)
+      .backgroundColor('#241f12')
+      .border({ width: 1, color: 'rgba(249, 202, 36, 0.35)', radius: 16 })
+      .shadow({ radius: 30, color: 'rgba(0, 0, 0, 0.5)', offsetY: 8 })
+    }
+    .width('100%')
+    .height('100%')
+  }
+}
