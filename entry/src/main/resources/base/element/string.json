@@ -2,7 +2,7 @@
   "string": [
     {
       "name": "app_name",
-      "value": "麻神祈福"
+      "value": "麻神保佑"
     },
     {
       "name": "vibrate_reason",
@@ -11,6 +11,10 @@
     {
       "name": "internet_reason",
       "value": "用于同步祈福排行榜与心愿墙数据"
+    },
+    {
+      "name": "accelerometer_reason",
+      "value": "用于摇晃手机求签：检测摇晃动作抽出签支"
     }
   ]
 }
