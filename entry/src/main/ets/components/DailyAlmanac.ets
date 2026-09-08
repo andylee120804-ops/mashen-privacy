@@ -50,7 +50,7 @@ export struct DailyAlmanac {
         Column() {
           Text('忌 ❌')
             .fontSize(10)
-            .fontColor('rgba(231, 76, 60, 0.8)')
+            .fontColor('#f0533f')
             .margin({ bottom: 2 })
           Text(this.enrichVM.getAlmanac().avoid)
             .fontSize(12)
@@ -61,18 +61,20 @@ export struct DailyAlmanac {
       }
       .width('100%')
       .justifyContent(FlexAlign.SpaceBetween)
+      // 三列高度不同（中列3行、宜/忌列2行），顶部对齐保证"宜/主神/忌"标签在同一基线
+      .alignItems(VerticalAlign.Top)
 
       // 香火指示
       Text(`今日香火：${this.getIncenseBar()}`)
         .fontSize(11)
-        .fontColor('rgba(253, 246, 227, 0.4)')
+        .fontColor('rgba(253, 246, 227, 0.5)')
         .margin({ top: 8 })
     }
     .width('90%')
     .padding(12)
     .backgroundColor('rgba(192, 57, 43, 0.08)')
     .border({ width: 1, color: 'rgba(249, 202, 36, 0.2)', radius: 10 })
-    .position({ x: '50%', y: 12 })
+    .position({ x: '50%', y: 48 }) // 避开沉浸式状态栏（时间/电量区域）
     .translate({ x: '-50%', y: '0' })
   }
 

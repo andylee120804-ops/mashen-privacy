@@ -3,7 +3,7 @@
 // 客户端 data: { type: 'daily'|'weekly'|'total'|'daily-count', __uid }
 // 查询由 collection(type).query() 链式条件后 .get() 执行（返回 Promise<T[]>）。
 const { wrapHttp, success, fail, CODE } = require('./shared/response');
-const { getDB, getWeekStart } = require('./shared/db');
+const { getDB, getWeekStart, toPlainObject, withTimeout, DB_TIMEOUT_MS } = require('./shared/db');
 
 var TYPE = 'Leaderboard';
 
@@ -24,8 +24,11 @@ async function handler(body, event, context, log) {
   // 今日香火人数：统计今日有祈福记录的用户数
   if (type === 'daily-count') {
     try {
-      var cntResult = await db.collection(TYPE).query()
-        .greaterThanOrEqualTo('updatedAt', today).get();
+      var cntResult = await withTimeout(
+        db.collection(TYPE).query().greaterThanOrEqualTo('updatedAt', today).get(),
+        DB_TIMEOUT_MS,
+        'get-leaderboard:daily-count'
+      );
       return success({ count: cntResult ? cntResult.length : 0 });
     } catch (err) {
       log.error('[get-leaderboard] daily-count error: ' + (err && err.message));
@@ -61,13 +64,14 @@ async function handler(body, event, context, log) {
         break;
     }
 
-    var result = await query.get();
+    var result = await withTimeout(query.get(), DB_TIMEOUT_MS, 'get-leaderboard:query');
     var entries = (result || []).map(function (item, index) {
+      var obj = toPlainObject(item);
       return {
-        userId: item.userId || '',
-        nickname: item.nickname || '麻***',
-        count: countOf(type, item),
-        kowtow: item.totalKowtow || 0,
+        userId: obj.userId || '',
+        nickname: obj.nickname || '麻***',
+        count: countOf(type, obj),
+        kowtow: obj.totalKowtow || 0,
         rank: index + 1
       };
     });
@@ -79,10 +83,13 @@ async function handler(body, event, context, log) {
         if (entries[i].userId === uid) { inList = true; break; }
       }
       if (!inList) {
-        var userResult = await db.collection(TYPE).query()
-          .equalTo('userId', uid).get();
+        var userResult = await withTimeout(
+          db.collection(TYPE).query().equalTo('userId', uid).get(),
+          DB_TIMEOUT_MS,
+          'get-leaderboard:user'
+        );
         if (userResult && userResult.length > 0) {
-          var u = userResult[0];
+          var u = toPlainObject(userResult[0]);
           entries.push({
             userId: u.userId || '',
             nickname: u.nickname || '麻***',

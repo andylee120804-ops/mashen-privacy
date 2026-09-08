@@ -83,6 +83,8 @@ export struct DiaryList {
         }, (record: PrayerRecord) => record.id)
       }
       .cachedCount(5)
+      // alwaysEnabled：记录少于一屏时也回弹，满足 AGC「滑动到边界有反馈动效」
+      .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       .layoutWeight(1)
     }
   }
@@ -98,7 +100,7 @@ export struct DiaryList {
             .fontColor('#fdf6e3')
           Text(this.formatTime(record.timestamp))
             .fontSize(11)
-            .fontColor('rgba(253, 246, 227, 0.4)')
+            .fontColor('rgba(253, 246, 227, 0.5)')
             .margin({ top: 4 })
         }
         .alignItems(HorizontalAlign.Start)
@@ -119,7 +121,7 @@ export struct DiaryList {
           TextInput({ text: this.editingNote, placeholder: '添加备注...' })
             .fontSize(12)
             .fontColor('#fdf6e3')
-            .placeholderColor('rgba(253, 246, 227, 0.3)')
+            .placeholderColor('rgba(253, 246, 227, 0.5)')
             .backgroundColor('rgba(249, 202, 36, 0.08)')
             .borderRadius(6)
             .height(32)
@@ -146,7 +148,7 @@ export struct DiaryList {
         Row() {
           Text(this.noteText(record.id))
             .fontSize(11)
-            .fontColor(this.hasNote(record.id) ? 'rgba(253, 246, 227, 0.5)' : 'rgba(253, 246, 227, 0.2)')
+            .fontColor(this.hasNote(record.id) ? 'rgba(253, 246, 227, 0.5)' : 'rgba(253, 246, 227, 0.5)')
             .fontStyle(this.hasNote(record.id) ? FontStyle.Normal : FontStyle.Italic)
             .onClick(() => {
               this.editingId = record.id

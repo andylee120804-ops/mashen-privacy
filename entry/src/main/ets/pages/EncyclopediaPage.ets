@@ -3,9 +3,12 @@
 // 详情用页面内覆层实现（点遮罩或「收下」确定性关闭），避免 CustomDialog 控制器绑定问题。
 import { DeityEntry, CultureArticle, DEITY_ENCYCLOPEDIA, CULTURE_ARTICLES } from '../model/CultureContent'
 import { MahjongTile } from '../components/MahjongTile'
+import { PageBack } from '../components/PageBack'
 
 @Component
 export struct EncyclopediaPage {
+  /** 独立模式（EntryShell 从「我的」进入）：返回键并入大标题行；Tab 模式不带 */
+  @Prop standalone: boolean = false
   @State currentSection: string = 'deities'
   @State showDeityDetail: boolean = false
   @State selectedDeity: DeityEntry = DEITY_ENCYCLOPEDIA[0]
@@ -15,17 +18,26 @@ export struct EncyclopediaPage {
   build() {
     Stack() {
       Column() {
-        // 标题（Tab 模式直接展示；独立模式由 EntryShell 提供返回头）
+        // 标题（Tab 模式直接展示；独立模式返回键并入同行且标题居中）
+        // 全 App Tab 页标题统一：20sp 金色粗体（Tab 左对齐，见黄历/木鱼/求签）
         Row() {
-          Blank()
+          if (this.standalone) {
+            PageBack()
+          }
           Text('📜 财神百科')
-            .fontSize(17)
+            .fontSize(20)
             .fontWeight(FontWeight.Bold)
             .fontColor('#f9ca24')
-          Blank()
+            .layoutWeight(1)
+            .textAlign(this.standalone ? TextAlign.Center : TextAlign.Start)
+          if (this.standalone) {
+            Text(' ')
+              .fontSize(14)
+              .width(76)
+          }
         }
         .width('100%')
-        .padding({ left: 16, right: 16, top: 44, bottom: 10 })
+        .padding({ left: this.standalone ? 6 : 20, top: 44, bottom: 8 })
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
 
         // 分区切换
@@ -48,10 +60,10 @@ export struct EncyclopediaPage {
               }, (deity: DeityEntry) => deity.id.toString())
             }
             .width('100%')
-            .padding({ left: 16, right: 16 })
+            .padding({ left: 16, right: 16, bottom: 28 })
           }
           .layoutWeight(1)
-          .edgeEffect(EdgeEffect.Spring)
+          .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
           .scrollBar(BarState.Off)
         } else {
           Scroll() {
@@ -65,10 +77,10 @@ export struct EncyclopediaPage {
               }, (article: CultureArticle) => article.id)
             }
             .width('100%')
-            .padding({ left: 16, right: 16 })
+            .padding({ left: 16, right: 16, bottom: 28 })
           }
           .layoutWeight(1)
-          .edgeEffect(EdgeEffect.Spring)
+          .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
           .scrollBar(BarState.Off)
         }
       }
@@ -242,7 +254,7 @@ export struct EncyclopediaPage {
           .width('100%')
         }
         .height(420)
-        .edgeEffect(EdgeEffect.Spring)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
         .scrollBar(BarState.Off)
 
         Button('收下')
@@ -297,7 +309,7 @@ export struct EncyclopediaPage {
             .margin({ top: 16 })
         }
         .height(320)
-        .edgeEffect(EdgeEffect.Spring)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
         .scrollBar(BarState.Off)
 
         Button('收下')

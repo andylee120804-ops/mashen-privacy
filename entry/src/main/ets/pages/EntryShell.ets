@@ -1,12 +1,17 @@
 // entry/src/main/ets/pages/EntryShell.ets
-// 统一 @Entry 外壳：从「我的」页进入各可配置入口时提供返回头。
-// 各入口页本身为 @Component 内容组件（无返回头）；Tab 模式由 MainTabs 直接渲染。
+// 统一 @Entry 外壳：从「我的」页进入各可配置入口（未开 Tab 功能）。
+// 头部布局由各入口页自行负责（standalone=true 时返回键并入页面 20sp 大标题行，
+// 见 FortuneAlmanacPage / QiuQian 等）；本壳只做按 entryId 分发 + 激活入口 id 同步。
+// Tab 模式由 MainTabs 直接渲染（standalone=false，不带返回键）。
 import { QiuQianPage } from './QiuQian'
 import { MuyuPage } from './MuyuPage'
 import { FortuneAlmanacPage } from './FortuneAlmanacPage'
 import { WishWallPage } from './WishWall'
 import { LeaderboardPage } from './Leaderboard'
 import { EncyclopediaPage } from './EncyclopediaPage'
+import { GameRecordPage } from './GameRecordPage'
+import { MahjongTipsPage } from './MahjongTipsPage'
+import { BouncePage } from '../components/BouncePage'
 
 @Entry
 @Component
@@ -24,40 +29,32 @@ struct EntryShell {
 
   build() {
     Column() {
-      // 返回头（各入口页自带标题行，此处只提供返回）
-      Row() {
-        Text('← 返回')
-          .fontSize(14)
-          .fontColor('#f9ca24')
-          .onClick((): void => {
-            this.getUIContext().getRouter().back()
-          })
-        Blank()
-        Text(' ')
-          .fontSize(14)
-          .width(60)
-      }
-      .width('100%')
-      .padding({ left: 16, right: 16, top: 44, bottom: 6 })
-      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
-
       if (this.entryId === 'qiuqian') {
-        QiuQianPage()
+        // 固定全屏画布：BouncePage 内容恒超视口 8vp，滑动到边界必有回弹
+        BouncePage() {
+          QiuQianPage({ standalone: true })
+        }
       } else if (this.entryId === 'muyu') {
-        MuyuPage()
+        BouncePage() {
+          MuyuPage({ standalone: true })
+        }
       } else if (this.entryId === 'fortune') {
-        FortuneAlmanacPage()
+        FortuneAlmanacPage({ standalone: true })
       } else if (this.entryId === 'wishwall') {
-        WishWallPage()
+        WishWallPage({ standalone: true })
       } else if (this.entryId === 'leaderboard') {
-        LeaderboardPage()
+        LeaderboardPage({ standalone: true })
       } else if (this.entryId === 'encyclopedia') {
-        EncyclopediaPage()
+        EncyclopediaPage({ standalone: true })
+      } else if (this.entryId === 'gamerecord') {
+        // 记录牌局：汇总 + 每笔明细（数据与「我的」页汇总卡同一份）
+        GameRecordPage({ standalone: true })
+      } else if (this.entryId === 'tips') {
+        MahjongTipsPage({ standalone: true })
       }
     }
     .width('100%')
     .height('100%')
     .backgroundColor('#1a1a0a')
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
   }
 }

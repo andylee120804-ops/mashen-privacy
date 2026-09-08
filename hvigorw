@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+
+# ----------------------------------------------------------------------------
+#  Hvigor startup script, version 1.0.0
+#
+#  Required ENV vars:
+#  ------------------
+#    NODE_HOME - location of a Node home dir
+#    or
+#    Add /usr/local/nodejs/bin to the PATH environment variable
+# ----------------------------------------------------------------------------
+
+HVIGOR_APP_HOME="$(dirname "$(echo "$0" | sed -e 's,\\,/,g')")"
+HVIGOR_WRAPPER_SCRIPT=${HVIGOR_APP_HOME}/hvigorw.js
+#NODE_OPTS="--max-old-space-size=8192  --expose-gc"
+
+warn() {
+	echo ""
+	echo -e "\033[1;33m`date '+[%Y-%m-%d %H:%M:%S]'`$@\033[0m"
+}
+
+error() {
+	echo ""
+	echo -e "\033[1;31m`date '+[%Y-%m-%d %H:%M:%S]'`$@\033[0m"
+}
+
+fail() {
+	error "$@"
+	exit 1
+}
+
+# Prefer DevEco bundled JBR on Windows so PackageHap can spawn java.
+DEVECO_JBR="/c/Program Files/Huawei/DevEco/jbr/bin"
+if [ -x "${DEVECO_JBR}/java.exe" ]; then
+  export PATH="${DEVECO_JBR}:$PATH"
+fi
+
+DEVECO_SDK="C:\Program Files\Huawei\DevEco\sdk"
+if [ -d "/c/Program Files/Huawei/DevEco/sdk" ]; then
+  export DEVECO_SDK_HOME="${DEVECO_SDK}"
+fi
+
+DEVECO_HVIGOR_WRAPPER="/c/Program Files/Huawei/DevEco/tools/hvigor/bin/hvigorw.js"
+DEVECO_NODE="/c/Program Files/Huawei/DevEco/tools/node/node.exe"
+if [ -r "${DEVECO_HVIGOR_WRAPPER}" ] && [ -x "${DEVECO_NODE}" ]; then
+  exec "${DEVECO_NODE}" "${DEVECO_HVIGOR_WRAPPER}" "$@"
+fi
+
+# Fallback for installations that keep the product directory name as "DevEco Studio".
+DEVECO_STUDIO_JBR="/c/Program Files/Huawei/DevEco Studio/jbr/bin"
+if [ -x "${DEVECO_STUDIO_JBR}/java.exe" ]; then
+  export PATH="${DEVECO_STUDIO_JBR}:$PATH"
+fi
+
+DEVECO_STUDIO_SDK="C:\Program Files\Huawei\DevEco Studio\sdk"
+if [ -d "/c/Program Files/Huawei/DevEco Studio/sdk" ]; then
+  export DEVECO_SDK_HOME="${DEVECO_STUDIO_SDK}"
+fi
+
+DEVECO_STUDIO_HVIGOR_WRAPPER="/c/Program Files/Huawei/DevEco Studio/tools/hvigor/bin/hvigorw.js"
+DEVECO_STUDIO_NODE="/c/Program Files/Huawei/DevEco Studio/tools/node/node.exe"
+if [ -r "${DEVECO_STUDIO_HVIGOR_WRAPPER}" ] && [ -x "${DEVECO_STUDIO_NODE}" ]; then
+  exec "${DEVECO_STUDIO_NODE}" "${DEVECO_STUDIO_HVIGOR_WRAPPER}" "$@"
+fi
+
+# Determine node to start hvigor wrapper script
+if [ -n "${NODE_HOME}" ];then
+   # unix path
+   if [ -x "${NODE_HOME}/bin/node" ];then
+      EXECUTABLE_NODE="${NODE_HOME}/bin/node"
+   # windows path
+   elif [ -x "${NODE_HOME}/node.exe" ];then
+      EXECUTABLE_NODE="${NODE_HOME}/node.exe"
+   else
+      fail "ERROR: NODE_HOME is set to an invalid directory,check $NODE_HOME\n\nPlease set NODE_HOME in your environment to the location where your nodejs installed"
+   fi
+else
+   EXECUTABLE_NODE="node"
+   which ${EXECUTABLE_NODE} > /dev/null 2>&1 || fail "ERROR: NODE_HOME is not set and not 'node' command found in your path"
+fi
+
+# Check hvigor wrapper script
+if [ ! -r "$HVIGOR_WRAPPER_SCRIPT" ];then
+	fail "ERROR: Couldn't find hvigorw.js in ${HVIGOR_APP_HOME}"
+fi
+
+if [ -z "${NODE_OPTS}" ]; then
+  NODE_OPTS="--"
+fi
+
+# start hvigor-wrapper script
+exec "${EXECUTABLE_NODE}" "${NODE_OPTS}" \
+	"${HVIGOR_WRAPPER_SCRIPT}" "$@"

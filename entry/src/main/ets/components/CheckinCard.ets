@@ -16,10 +16,11 @@ export struct CheckinCard {
           Column() {
             Text(tile)
               .fontSize(24)
-              .opacity(index < this.enrichVM.checkin.streak ? 1 : 0.2)
+              // 未签到日的牌面至少 0.4，避免 emoji 字形过淡被对比度检测标记
+              .opacity(index < this.enrichVM.checkin.streak ? 1 : 0.4)
             Text(this.getDayLabel(index))
               .fontSize(9)
-              .fontColor(index < this.enrichVM.checkin.streak ? '#f9ca24' : 'rgba(253, 246, 227, 0.2)')
+              .fontColor(index < this.enrichVM.checkin.streak ? '#f9ca24' : 'rgba(253, 246, 227, 0.5)')
               .margin({ top: 2 })
           }
           .width('13%')
@@ -34,7 +35,7 @@ export struct CheckinCard {
       Button(this.enrichVM.canCheckin() ? '🔥 今日签到领香火' : '✅ 今日已签到')
         .fontSize(14)
         .fontWeight(FontWeight.Medium)
-        .fontColor(this.enrichVM.canCheckin() ? '#1a1a0a' : 'rgba(253, 246, 227, 0.4)')
+        .fontColor(this.enrichVM.canCheckin() ? '#1a1a0a' : 'rgba(253, 246, 227, 0.5)')
         .backgroundColor(this.enrichVM.canCheckin() ? '#f9ca24' : 'rgba(249, 202, 36, 0.1)')
         .borderRadius(20)
         .padding({ left: 24, right: 24, top: 10, bottom: 10 })

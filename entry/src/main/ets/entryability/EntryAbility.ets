@@ -8,6 +8,7 @@ import { util } from '@kit.ArkTS'
 import { EntryConfigVM } from '../viewmodels/EntryConfigVM'
 import { FortuneViewModel } from '../viewmodels/FortuneViewModel'
 import { MuyuViewModel } from '../viewmodels/MuyuViewModel'
+import { QiuQianViewModel } from '../viewmodels/QiuQianViewModel'
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
@@ -52,6 +53,13 @@ export default class EntryAbility extends UIAbility {
       console.error('MuyuViewModel init failed:', JSON.stringify(err))
     })
 
+    // 全局共享的求签记录/每日额度（自动记签 + 每日最多 3 签）
+    const qiuVM = new QiuQianViewModel()
+    AppStorage.setOrCreate('qiuVM', qiuVM)
+    qiuVM.initialize(this.context).catch((err: Object) => {
+      console.error('QiuQianViewModel init failed:', JSON.stringify(err))
+    })
+
     // 生成或读取设备用户 ID（供 CloudService 匿名标识使用）
     preferences.getPreferences(this.context, 'mashen_user_prefs').then((prefs: preferences.Preferences) => {
       prefs.get('deviceUserId', '').then((val: preferences.ValueType) => {
@@ -62,6 +70,11 @@ export default class EntryAbility extends UIAbility {
           prefs.flush()
         }
         AppStorage.setOrCreate('deviceUserId', uid)
+        // 设备 ID 就绪后启动牌局记录云同步（P1：同设备云备份，防本地数据丢失）。
+        // enrichVM 在 onCreate 前文已初始化；startCloudSync 幂等，离线时安全跳过。
+        enrichVM.startCloudSync().catch((err: Object) => {
+          console.error('EnrichViewModel startCloudSync failed:', JSON.stringify(err))
+        })
       })
     })
   }

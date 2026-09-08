@@ -1,0 +1,34 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+body{margin:0;background:#1a1a0a;font-family:system-ui;color:#f9ca24;padding:20px}
+h2{font-size:18px;margin:0 0 4px}
+.hint{font-size:12px;color:rgba(253,246,227,0.45);margin-bottom:16px}
+.grid{display:flex;flex-wrap:wrap;gap:8px}
+.cell{width:100px;text-align:center}
+.cell img{width:100px;height:100px;object-fit:contain;background:#000;border-radius:6px;border:1px solid rgba(249,202,36,0.15)}
+.cell .n{font-size:13px;font-weight:bold;color:#f9ca24;margin-top:4px}
+.cell .lbl{font-size:10px;color:rgba(253,246,227,0.4)}
+</style></head><body>
+  <h2>磕头动画 44 帧逐帧查看</h2>
+  <div class="hint">编号即帧序号。告诉我要删哪些帧号（如：删 3,5,8）</div>
+  <div class="grid" id="grid"></div>
+<script>
+const TOTAL=44;
+// 帧类型标注（key=关键帧, mid=AI中间帧, hold=停留帧）
+const TYPES={
+1:'key 站立',2:'mid',3:'mid',4:'key',5:'mid',6:'mid',7:'key',
+8:'mid',9:'mid',10:'key',11:'mid',12:'mid',13:'key',
+14:'mid',15:'mid',16:'key',17:'mid',18:'mid',19:'key',
+20:'mid',21:'mid',22:'key',23:'mid',24:'mid',25:'key',
+26:'mid',27:'mid',28:'key',29:'mid',30:'mid',31:'key',
+32:'mid',33:'mid',34:'key',35:'mid',36:'mid',37:'key',
+38:'mid',39:'mid',40:'key 触地',41:'hold',42:'hold',43:'hold',44:'hold'
+};
+const g=document.getElementById('grid');
+let html='';
+for(let i=1;i<=TOTAL;i++){
+  const n=i<10?'0'+i:i;
+  html+='<div class="cell"><img src="../entry/src/main/resources/rawfile/animations/kowtow_'+n+'.png"><div class="n">#'+i+'</div><div class="lbl">'+(TYPES[i]||'')+'</div></div>';
+}
+g.innerHTML=html;
+</script>
+</body></html>

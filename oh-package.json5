@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.0.6",
+  "name": "mashen",
+  "version": "1.0.0",
+  "description": "麻神保佑",
+  "main": "",
+  "author": "",
+  "license": "ISC",
+  "dependencies": {},
+  "devDependencies": {}
+}

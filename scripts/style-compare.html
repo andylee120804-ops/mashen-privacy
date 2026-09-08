@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  body{margin:0;background:#1a1a0a;font-family:system-ui;color:#f9ca24;display:flex;flex-direction:column;align-items:center;padding:20px}
+  h2{font-size:20px;margin:8px 0 20px}
+  .row{display:flex;gap:48px;align-items:flex-end}
+  .col{display:flex;flex-direction:column;align-items:center;gap:8px}
+  .col h3{font-size:15px;margin:0;color:#fdf6e3}
+  .col .sub{font-size:12px;color:rgba(253,246,227,0.55);max-width:200px;text-align:center;line-height:1.4}
+  .box{width:220px;height:260px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);border:1px solid rgba(249,202,36,0.2);border-radius:12px}
+  .vec-row{display:flex;gap:20px}
+</style></head>
+<body>
+  <h2>磕头小人风格对比 · FLUX 手绘 vs 矢量 Lottie</h2>
+  <div class="row">
+    <!-- FLUX 手绘（现有素材，站姿，弯不下腰） -->
+    <div class="col">
+      <h3>FLUX 手绘（现有）</h3>
+      <div class="box">
+        <img src="../entry/src/main/resources/rawfile/props/worshipper_bow1.png" style="max-height:230px;object-fit:contain">
+      </div>
+      <div class="sub">数字绘画质感。但单图，腰是直的，只能变矮，<b>弯不下去</b></div>
+    </div>
+
+    <!-- 矢量 Lottie（站立 + 深弯腰，证明关节可动） -->
+    <div class="col">
+      <h3>矢量 Lottie（可做关节动画）</h3>
+      <div class="box vec-row">
+        <!-- 站立 -->
+        <svg viewBox="0 0 180 230" width="100" height="130">
+          <!-- 下身/袍摆底座（不旋转） -->
+          <path d="M50,175 L130,175 L150,225 L30,225 Z" fill="#a93226"/>
+          <!-- 上身+头+手 组（可绕髋部旋转，此处 0°） -->
+          <g transform="rotate(0 90 180)">
+            <!-- 袍子上身 -->
+            <path d="M58,110 L122,110 L132,180 L48,180 Z" fill="#c0392b"/>
+            <!-- 金边领 -->
+            <path d="M58,110 L122,110 L116,124 L64,124 Z" fill="#f9ca24"/>
+            <!-- 背中金线 -->
+            <line x1="90" y1="124" x2="90" y2="180" stroke="#f9ca24" stroke-width="2"/>
+            <!-- 双手合十于后腰 -->
+            <ellipse cx="90" cy="168" rx="10" ry="7" fill="#f5cba7"/>
+            <!-- 头（后脑，黑发） -->
+            <ellipse cx="90" cy="70" rx="34" ry="36" fill="#2c2c2c"/>
+            <!-- 发髻 -->
+            <circle cx="90" cy="34" r="11" fill="#2c2c2c"/>
+            <!-- 金色发带 -->
+            <path d="M58,76 Q90,86 122,76" stroke="#f9ca24" stroke-width="3" fill="none"/>
+          </g>
+        </svg>
+        <!-- 深弯腰 -70° -->
+        <svg viewBox="0 0 180 230" width="100" height="130">
+          <path d="M50,175 L130,175 L150,225 L30,225 Z" fill="#a93226"/>
+          <g transform="rotate(-70 90 180)">
+            <path d="M58,110 L122,110 L132,180 L48,180 Z" fill="#c0392b"/>
+            <path d="M58,110 L122,110 L116,124 L64,124 Z" fill="#f9ca24"/>
+            <line x1="90" y1="124" x2="90" y2="180" stroke="#f9ca24" stroke-width="2"/>
+            <ellipse cx="90" cy="168" rx="10" ry="7" fill="#f5cba7"/>
+            <ellipse cx="90" cy="70" rx="34" ry="36" fill="#2c2c2c"/>
+            <circle cx="90" cy="34" r="11" fill="#2c2c2c"/>
+            <path d="M58,76 Q90,86 122,76" stroke="#f9ca24" stroke-width="3" fill="none"/>
+          </g>
+        </svg>
+      </div>
+      <div class="sub">扁平矢量。上身绕腰部旋转，<b>腰真弯、头触地</b>。可循环磕头</div>
+    </div>
+  </div>
+</body></html>

@@ -1,0 +1,78 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+body{margin:0;background:#1a1a0a;font-family:system-ui;color:#f9ca24;display:flex;flex-direction:column;align-items:center;padding:24px}
+h2{font-size:20px;margin:8px 0 6px}
+.hint{font-size:12px;color:rgba(253,246,227,0.45);margin-bottom:16px}
+/* 模拟 app 背景 + 香炉位置 */
+.stage{width:360px;height:480px;position:relative;background:linear-gradient(180deg,#1a1a0a 50%,#2a1a0a);border:1px solid rgba(249,202,36,0.12);border-radius:16px;overflow:hidden}
+.altar{position:absolute;left:50%;top:62%;transform:translateX(-50%);width:120px;height:40px;background:radial-gradient(ellipse,#3a2a1a,#1a1a0a);border-radius:50%}
+.stage img{position:absolute;left:50%;bottom:8%;transform:translateX(-50%);max-width:55%;max-height:60%;object-fit:contain;opacity:0;transition:opacity 50ms linear}
+.stage img.active{opacity:1}
+.blessing{position:absolute;top:30%;left:50%;transform:translateX(-50%);font-size:30px;font-weight:bold;color:#f9ca24;text-shadow:0 0 14px rgba(249,202,36,0.7);opacity:0;pointer-events:none;transition:opacity 0.5s ease, top 1.2s ease-out}
+.blessing.show{opacity:1;top:15%}
+.blessing.gone{opacity:0;top:0%}
+.controls{margin-top:14px;display:flex;gap:14px;align-items:center}
+button{background:#f9ca24;color:#1a1a0a;border:0;border-radius:24px;padding:12px 32px;font-size:18px;font-weight:bold;cursor:pointer}
+button:active{transform:scale(0.95)}
+button:disabled{opacity:0.35;cursor:not-allowed}
+#cnt{font-size:14px;color:rgba(253,246,227,0.55)}
+.finish{background:transparent;color:#f9ca24;border:1px solid #f9ca24;font-size:14px;opacity:0;transition:opacity 0.3s;pointer-events:none}
+.finish.show{opacity:1;pointer-events:auto}
+</style></head><body>
+  <h2>磕头动画 · 透明PNG融合 app背景（51帧）</h2>
+  <div class="hint">视频抽帧+rembg去背景，叠加在 app 深色背景上。正向播放触地停止</div>
+  <div class="stage" id="stage">
+    <div class="altar"></div>
+    <div class="blessing" id="blessing"></div>
+  </div>
+  <div class="controls">
+    <button id="btn" onclick="doKowtow()">磕头</button>
+    <span id="cnt">0 次</span>
+    <button class="finish" id="finishBtn" onclick="doFinish()">完成祈福</button>
+  </div>
+<script>
+const TOTAL=51;
+const BLESS=['胡牌','自摸','赢钱','杠上开花','清一色','手气长红'];
+const stage=document.getElementById('stage');
+const imgs=[];
+for(let i=0;i<TOTAL;i++){
+  const img=document.createElement('img');
+  const n=i+1;
+  img.src='../entry/src/main/resources/rawfile/animations/kowtow_'+(n<10?'0':'')+n+'.png';
+  if(i===0)img.classList.add('active');
+  stage.appendChild(img);
+  imgs.push(img);
+}
+let kow=0,playing=false,timers=[];
+function show(n){ imgs.forEach((im,i)=>im.classList.toggle('active',i===n)); }
+function clearTimers(){ timers.forEach(t=>clearTimeout(t)); timers=[]; }
+function spawnBlessing(){
+  const el=document.getElementById('blessing');
+  el.textContent=BLESS[kow%BLESS.length];
+  el.className='blessing show';
+  setTimeout(()=>{el.className='blessing gone';},700);
+}
+function doKowtow(){
+  if(playing)return;
+  playing=true;
+  document.getElementById('btn').disabled=true;
+  kow++;
+  document.getElementById('cnt').textContent=kow+' 次';
+  spawnBlessing();
+  show(0);
+  let elapsed=0;
+  // 正向逐帧 1 -> 50（每帧 100ms = 10fps 原速），最后停在触地
+  for(let i=1;i<=50;i++){
+    elapsed+=100;
+    const f=i;
+    timers.push(setTimeout(()=>{show(f);},elapsed));
+  }
+  timers.push(setTimeout(()=>{
+    playing=false;
+    document.getElementById('btn').disabled=false;
+    if(kow>=3)document.getElementById('finishBtn').classList.add('show');
+  },elapsed+50));
+}
+function doFinish(){ document.getElementById('cnt').textContent='祈福完成!'; }
+show(0);
+</script>
+</body></html>

@@ -2,7 +2,7 @@
 // 祈福完成后上报：累加今日/本周/总次数与磕头数，按天/周重置。
 // 客户端 data: { __uid, nickname, kowtowCount, streak }
 const { wrapHttp, success, fail, CODE } = require('./shared/response');
-const { getDB, toGenericObjects, getWeekStart } = require('./shared/db');
+const { getDB, toGenericObjects, toPlainObject, getWeekStart, withTimeout, DB_TIMEOUT_MS } = require('./shared/db');
 
 var TYPE = 'Leaderboard';
 
@@ -39,11 +39,15 @@ async function handler(body, event, context, log) {
 
   try {
     // 查询当前用户现有记录
-    var existing = await db.collection(TYPE).query().equalTo('userId', uid).get();
+    var existing = await withTimeout(
+      db.collection(TYPE).query().equalTo('userId', uid).get(),
+      DB_TIMEOUT_MS,
+      'update-prayer-count:query'
+    );
 
     var data;
     if (existing && existing.length > 0) {
-      var record = existing[0];
+      var record = toPlainObject(existing[0]);
       var updatedAt = record.updatedAt || '';
       var recordWeekStart = record.weekStart || '';
       var isNewDay = !updatedAt.startsWith(today);
@@ -75,7 +79,7 @@ async function handler(body, event, context, log) {
     }
 
     // upsert 必须经 toGenericObjects 转换（SDK convertTClass bug）
-    await db.collection(TYPE).upsert(toGenericObjects(TYPE, data));
+    await withTimeout(db.collection(TYPE).upsert(toGenericObjects(TYPE, data)), DB_TIMEOUT_MS, 'update-prayer-count:upsert');
     return success({ updated: true });
   } catch (err) {
     log.error('[update-prayer-count] DB error: ' + (err && err.message));

@@ -1,5 +1,7 @@
 // entry/src/main/ets/pages/MyPage.ets
-// 我的：牌运汇总 + 今日运势速览 + 成就徽章 + 界面定制入口 + 功能入口。
+// 我的：牌运汇总 + 成就徽章 + 界面定制入口 + 功能入口。
+// 牌运汇总（GameRecordCard）置顶固定展示，即使「记录牌局」被设为底部 Tab 也不隐藏，
+// 两处共用同一 enrichViewModel 数据一致；其开关在界面定制，不入「功能入口」行。
 // 功能入口只列出「未开启为底部 Tab」的项（开启后由底部 Tab 直达，此处不再重复展示）；
 // 开关与排序统一收敛到界面定制子页（CustomizePage，长按拖拽）。
 // 说明：UI v1 下 @StorageLink 不通知 @Observed 嵌套变更，页面把派生数据快照到
@@ -7,30 +9,22 @@
 import { PrayerViewModel } from '../viewmodels/PrayerViewModel'
 import { EnrichViewModel } from '../viewmodels/EnrichViewModel'
 import { EntryConfigVM, EntryItem } from '../viewmodels/EntryConfigVM'
-import { FortuneViewModel } from '../viewmodels/FortuneViewModel'
 import { GameRecordCard } from '../components/GameRecordCard'
 import { AchievementGrid } from '../components/AchievementGrid'
+import { PrivacyDialog } from '../components/PrivacyDialog'
 import { Achievement } from '../model/EnrichTypes'
-import { PAIYUN_LEVELS, formatDate, starText } from '../model/FortuneTypes'
 
 @Component
 export struct MyPage {
   @StorageLink('viewModel') viewModel: PrayerViewModel = new PrayerViewModel()
   @StorageLink('enrichViewModel') enrichVM: EnrichViewModel = new EnrichViewModel()
   @StorageLink('entryConfigVM') entryConfigVM: EntryConfigVM = new EntryConfigVM()
-  @StorageLink('fortuneVM') fortuneVM: FortuneViewModel = new FortuneViewModel()
   @StorageLink('entryConfigRev') @Watch('onConfigRev') entryConfigRev: number = 0
-  @StorageLink('fortuneRev') @Watch('onFortuneRev') fortuneRev: number = 0
   @State currentSection: string = 'home'
   // —— 派生数据快照 ——
   @State offRows: EntryItem[] = []     // 未开启为 Tab 的入口（按用户 order）
   @State tabCount: number = 0          // 已开启 Tab 数
-  @State qcHas: boolean = false        // 已设置属相？
-  @State qcStars: string = ''
-  @State qcLevel: string = ''
-  @State qcLevelColor: string = '#f9ca24'
-  @State qcLevelText: string = ''
-  @State qcNums: string = ''
+  private privacyDialogController: CustomDialogController | null = null
 
   aboutToAppear(): void {
     this.syncAll()
@@ -45,18 +39,15 @@ export struct MyPage {
     this.syncConfig()
   }
 
-  onFortuneRev(): void {
-    this.syncFortune()
-  }
-
   private syncAll(): void {
     this.syncConfig()
-    this.syncFortune()
   }
 
   private syncConfig(): void {
+    // gamerecord 除外：其入口是置顶固定的 GameRecordCard（开关在界面定制，
+    // 开启后由底部 Tab 直达），不重复出现在「功能入口」行
     this.offRows = this.entryConfigVM.getSortedItems()
-      .filter((it: EntryItem): boolean => !it.enabled)
+      .filter((it: EntryItem): boolean => !it.enabled && it.id !== 'gamerecord')
     let n: number = 0
     for (const it of this.entryConfigVM.getSortedItems()) {
       if (it.enabled) {
@@ -66,21 +57,17 @@ export struct MyPage {
     this.tabCount = n
   }
 
-  private syncFortune(): void {
-    const f = this.fortuneVM.getShengxiaoFortune(formatDate(new Date()))
-    this.qcHas = f !== null
-    if (f) {
-      this.qcStars = starText(f.stars)
-      this.qcLevel = PAIYUN_LEVELS[f.paiyun].level
-      this.qcLevelColor = PAIYUN_LEVELS[f.paiyun].color
-      this.qcLevelText = PAIYUN_LEVELS[f.paiyun].text
-      this.qcNums = f.luckyNumbers.join(' · ')
-    } else {
-      this.qcStars = ''
-      this.qcLevel = ''
-      this.qcLevelText = ''
-      this.qcNums = ''
-    }
+  /** 复阅隐私政策（首次同意后仍可随时查看；只读模式，不提供退出应用） */
+  private openPrivacyDialog(): void {
+    this.privacyDialogController = new CustomDialogController({
+      builder: PrivacyDialog({
+        reviewOnly: true
+      }),
+      autoCancel: false,
+      alignment: DialogAlignment.Center,
+      customStyle: true
+    })
+    this.privacyDialogController.open()
   }
 
   build() {
@@ -97,29 +84,48 @@ export struct MyPage {
       if (this.currentSection === 'home') {
         Scroll() {
           Column() {
-            // 牌运汇总卡片（置顶突出显示）
-            GameRecordCard({ enrichVM: $enrichVM })
-              .margin({ top: 8, bottom: 12 })
-
-            // 今日运势速览卡
-            this.FortuneQuickCard()
+            // 牌运汇总卡片（置顶突出显示，固定不随 Tab 开关消失）。
+            // 只显示汇总 + 记一笔；每笔明细在记录牌局页（下方入口跳转，数据同一份）
+            GameRecordCard({
+              enrichVM: $enrichVM,
+              showDetailEntry: true,
+              onOpenDetail: (): void => {
+                this.getUIContext().getRouter().pushUrl({
+                  url: 'pages/EntryShell',
+                  params: { entryId: 'gamerecord' }
+                })
+              }
+            })
+              .margin({ top: 4, bottom: 12 })
 
             // 成就入口
-            this.MenuItem('🏅', '成就徽章', this.getUnlockedBadgeText(), (): void => { this.currentSection = 'achievement' })
+            this.MenuItem('🏅', '成就徽章', this.getUnlockedBadgeText(), false, (): void => { this.currentSection = 'achievement' })
 
             // 界面定制（子页：开关 + 长按拖拽排序）
-            this.MenuItem('🏗', '界面定制', `Tab 已开 ${this.tabCount}/3`, (): void => {
+            this.MenuItem('🏗', '界面定制', `Tab 已开 ${this.tabCount}/3`, false, (): void => {
               this.getUIContext().getRouter().pushUrl({ url: 'pages/CustomizePage' })
             })
 
             // 功能入口：只列未开启为底部 Tab 的功能（其余已由底部 Tab 直达）
             this.EntryListSection()
+
+            // 隐私政策（最底部小字入口，可随时查看；首次启动时已弹窗同意）
+            Text('隐私政策')
+              .fontSize(11)
+              .fontColor('rgba(249, 202, 36, 0.6)')
+              .textAlign(TextAlign.Center)
+              .margin({ top: 14, bottom: 8 })
+              .onClick((): void => {
+                this.openPrivacyDialog()
+              })
           }
           .width('100%')
           .alignItems(HorizontalAlign.Center)
+          // 沉浸式全屏：内容滚到底需避让系统导航条/手势条（≥28vp）
+          .padding({ bottom: 28 })
         }
         .layoutWeight(1)
-        .edgeEffect(EdgeEffect.Spring)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
         .scrollBar(BarState.Off)
       } else {
         // 子页面头部
@@ -146,7 +152,7 @@ export struct MyPage {
             AchievementGrid({ enrichVM: $enrichVM })
           }
           .layoutWeight(1)
-          .edgeEffect(EdgeEffect.Spring)
+          .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
           .scrollBar(BarState.Off)
         }
       }
@@ -155,62 +161,6 @@ export struct MyPage {
     .height('100%')
     .backgroundColor('#1a1a0a')
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
-  }
-
-  // ── 今日运势速览卡（快照渲染，syncFortune 刷新）──
-  @Builder
-  FortuneQuickCard() {
-    Column() {
-      Row() {
-        Text('✨ 今日运势')
-          .fontSize(15)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#f9ca24')
-        Blank()
-        Text('查看详情 ›')
-          .fontSize(11)
-          .fontColor('rgba(249, 202, 36, 0.8)')
-      }
-      .width('100%')
-      .margin({ bottom: 8 })
-
-      if (this.qcHas) {
-        Row() {
-          Text(this.qcStars)
-            .fontSize(14)
-            .fontColor('#f9ca24')
-          Column() {
-            Text(`牌运 ${this.qcLevel}`)
-              .fontSize(14)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(this.qcLevelColor)
-            Text(this.qcLevelText)
-              .fontSize(9)
-              .fontColor('rgba(253, 246, 227, 0.5)')
-              .margin({ top: 1 })
-          }
-          .alignItems(HorizontalAlign.Start)
-          .margin({ left: 12 })
-          Blank()
-          Text(`幸运数字 ${this.qcNums}`)
-            .fontSize(12)
-            .fontColor('rgba(253, 246, 227, 0.7)')
-        }
-        .width('100%')
-      } else {
-        Text('设置属相后，解锁今日牌运与幸运数字')
-          .fontSize(12)
-          .fontColor('rgba(253, 246, 227, 0.6)')
-      }
-    }
-    .width('90%')
-    .padding(14)
-    .backgroundColor('rgba(249, 202, 36, 0.05)')
-    .border({ width: 1, color: 'rgba(249, 202, 36, 0.12)', radius: 10 })
-    .margin({ bottom: 12 })
-    .onClick(() => {
-      this.getUIContext().getRouter().pushUrl({ url: 'pages/EntryShell', params: { entryId: 'fortune' } })
-    })
   }
 
   // ── 功能入口（未开 Tab 项）──
@@ -225,13 +175,15 @@ export struct MyPage {
         Blank()
         Text('开启为 Tab 的功能不在此重复显示')
           .fontSize(10)
-          .fontColor('rgba(253, 246, 227, 0.45)')
+          .fontColor('rgba(253, 246, 227, 0.5)')
       }
+      // 15/10sp 混排标题行：底对齐避免基准线错位
+      .alignItems(VerticalAlign.Bottom)
       .width('90%')
       .margin({ bottom: 6 })
 
       ForEach(this.offRows, (item: EntryItem) => {
-        this.MenuItem(this.entryConfigVM.getIcon(item.id), this.entryConfigVM.getTitle(item.id), '', (): void => {
+        this.MenuItem(this.entryConfigVM.getIcon(item.id), this.entryConfigVM.getTitle(item.id), '', item.id === 'muyu', (): void => {
           this.getUIContext().getRouter().pushUrl({ url: 'pages/EntryShell', params: { entryId: item.id } })
         })
       }, (item: EntryItem) => item.id)
@@ -241,12 +193,21 @@ export struct MyPage {
   }
 
   @Builder
-  MenuItem(icon: string, label: string, value: string, onClick: () => void) {
+  MenuItem(icon: string, label: string, value: string, isMuyu: boolean, onClick: () => void) {
     Row() {
-      Text(icon)
-        .fontSize(22)
-        .fontColor('#f9ca24')
-        .margin({ right: 10 })
+      if (isMuyu) {
+        // 木鱼入口：真实木鱼图（emoji 无木鱼字形，🪵 会看成木头）
+        Image($rawfile('props/muyu.png'))
+          .width(26)
+          .height(26)
+          .objectFit(ImageFit.Contain)
+          .margin({ right: 10 })
+      } else {
+        Text(icon)
+          .fontSize(22)
+          .fontColor('#f9ca24')
+          .margin({ right: 10 })
+      }
       Text(label)
         .fontSize(14)
         .fontColor('#fdf6e3')
@@ -261,6 +222,9 @@ export struct MyPage {
         .fontSize(14)
         .fontColor('rgba(253, 246, 227, 0.5)')
     }
+    // 行内图标/图片/文本（22/26/14/12sp 混排）统一底对齐：不同字号底线齐平，
+    // 避免 AGC「控件基准线不对齐」（默认 Center 对齐时不同行高底边错开）
+    .alignItems(VerticalAlign.Bottom)
     .width('90%')
     .padding(16)
     .backgroundColor('rgba(249, 202, 36, 0.05)')

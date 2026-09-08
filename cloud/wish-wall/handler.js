@@ -1,8 +1,8 @@
 // cloud/wish-wall/handler.js
-// 心愿墙：list（列表）/ create（发布）/ fulfill（还愿）。
+// 心愿墙：list / create / fulfill / delete。
 // 客户端 data: { action, __uid, content?, deityId?, nickname?, wishId? }
 const { wrapHttp, success, fail, CODE } = require('./shared/response');
-const { getDB, toGenericObjects } = require('./shared/db');
+const { getDB, toGenericObjects, toPlainObject, withTimeout, DB_TIMEOUT_MS } = require('./shared/db');
 
 var TYPE = 'Wish';
 var MAX_CONTENT = 30;
@@ -18,20 +18,30 @@ async function handler(body, event, context, log) {
   try {
     switch (action) {
       case 'list': {
-        var result = await db.collection(TYPE).query()
-          .orderByDesc('createdAt').limit(50).get();
+        var t0 = Date.now();
+        log.info('[wish-wall] list start uid=' + uid);
+        var result = await withTimeout(
+          db.collection(TYPE).query().orderByDesc('createdAt').limit(50).get(),
+          DB_TIMEOUT_MS,
+          'wish-wall:list'
+        );
+        log.info('[wish-wall] list raw ' + (Date.now() - t0) + 'ms count=' + (result ? result.length : 0));
         var wishes = (result || []).map(function (item) {
+          var obj = toPlainObject(item);
           return {
-            id: item.id || '',
-            userId: item.userId || '',
-            nickname: item.nickname || '麻***',
-            content: item.content || '',
-            deityId: item.deityId || 0,
-            fulfilled: item.fulfilled || false,
-            createdAt: item.createdAt || '',
-            fulfilledAt: item.fulfilledAt || ''
+            id: obj.id || '',
+            userId: obj.userId || '',
+            nickname: obj.nickname || '麻***',
+            content: obj.content || '',
+            deityId: obj.deityId || 0,
+            fulfilled: obj.fulfilled || false,
+            createdAt: obj.createdAt || '',
+            fulfilledAt: obj.fulfilledAt || ''
           };
+        }).filter(function (w) {
+          return w.userId === uid;
         });
+        log.info('[wish-wall] list after filter uid=' + uid + ' count=' + wishes.length);
         return success(wishes);
       }
 
@@ -56,7 +66,8 @@ async function handler(body, event, context, log) {
           createdAt: now,
           fulfilledAt: ''
         };
-        await db.collection(TYPE).upsert(toGenericObjects(TYPE, data));
+        await withTimeout(db.collection(TYPE).upsert(toGenericObjects(TYPE, data)), DB_TIMEOUT_MS, 'wish-wall:create');
+        log.info('[wish-wall] create ok id=' + id);
         return success({ id: id, createdAt: now });
       }
 
@@ -64,13 +75,16 @@ async function handler(body, event, context, log) {
         var wishId = body.wishId;
         if (!wishId) return fail(CODE.PARAM_ERROR, 'wishId required');
 
-        var existing = await db.collection(TYPE).query()
-          .equalTo('id', wishId).get();
+        var existing = await withTimeout(
+          db.collection(TYPE).query().equalTo('id', wishId).get(),
+          DB_TIMEOUT_MS,
+          'wish-wall:fulfill-query'
+        );
         if (!existing || existing.length === 0) {
           return fail(CODE.NOT_FOUND, 'wish not found');
         }
 
-        var wish = existing[0];
+        var wish = toPlainObject(existing[0]);
         // 仅心愿发布者可还愿
         if (wish.userId !== uid) return fail(CODE.FORBIDDEN, 'not your wish');
 
@@ -85,8 +99,32 @@ async function handler(body, event, context, log) {
           createdAt: wish.createdAt || '',
           fulfilledAt: now
         };
-        await db.collection(TYPE).upsert(toGenericObjects(TYPE, updated));
+        await withTimeout(db.collection(TYPE).upsert(toGenericObjects(TYPE, updated)), DB_TIMEOUT_MS, 'wish-wall:fulfill-upsert');
         return success({ fulfilled: true, fulfilledAt: now });
+      }
+
+      case 'delete': {
+        var wishId = body.wishId;
+        if (!wishId) return fail(CODE.PARAM_ERROR, 'wishId required');
+
+        var existing = await withTimeout(
+          db.collection(TYPE).query().equalTo('id', wishId).get(),
+          DB_TIMEOUT_MS,
+          'wish-wall:delete-query'
+        );
+        if (!existing || existing.length === 0) {
+          return fail(CODE.NOT_FOUND, 'wish not found');
+        }
+
+        var wish = toPlainObject(existing[0]);
+        // 仅心愿发布者可删除
+        if (wish.userId !== uid) return fail(CODE.FORBIDDEN, 'not your wish');
+
+        // 用查询返回的完整 CloudDBZoneGenericObject 删除，而非仅含 id 的新对象。
+        // toGenericObjects({ id }) 仅写 id 进 fieldMap，Cloud DB delete 需完整对象才能定位记录。
+        await withTimeout(db.collection(TYPE).delete(existing[0]), DB_TIMEOUT_MS, 'wish-wall:delete');
+        log.info('[wish-wall] delete ok id=' + wishId);
+        return success({ deleted: true });
       }
 
       default:

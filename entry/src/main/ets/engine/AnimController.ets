@@ -9,10 +9,15 @@ export class AnimController {
   private speedMultiplier: number = 1.0
   private timerId: number = -1
   private elapsedMs: number = 0
+  private blessingStarted: boolean = false
   private readonly stageDurations: Record<AnimStage, number> = {
-    [AnimStage.APPEAR]: 1500,
-    [AnimStage.INCENSE]: 2500,
-    [AnimStage.KOWTOW]: 2500,
+    [AnimStage.APPEAR]: 1600,   // 五神弧形绽放
+    [AnimStage.INCENSE]: 2400,  // 三炷香逐根点燃（0.8s/根）
+    [AnimStage.KOWTOW]: 0,      // 交互阶段，不自动推进
+    // 五神齐放金光。时长约束：AGC 点击完成时延标准 2400ms，
+    // 实测链路 = 本阶段 + 跳转/BlessingCard 首帧 ~400ms，故定 1500ms（合计 ~1900ms，留 500ms 余量）。
+    // 祝福音效由 SoundPool fire-and-forget 播放，与页面生命周期无关，
+    // 跳转后余音自然延续覆盖金榜入场，无需靠延长本阶段实现。勿再调大！
     [AnimStage.BLESSING]: 1500
   }
   private onProgress: AnimProgressCallback | null = null
@@ -42,7 +47,19 @@ export class AnimController {
     this.stop()
     this.isPlaying = true
     this.elapsedMs = 0
+    this.blessingStarted = false
     this.currentStage = AnimStage.APPEAR
+    this.runLoop()
+  }
+
+  // 交互阶段结束，用户点"完成祈福"后推进到 BLESSING
+  proceedToBlessing(): void {
+    if (this.blessingStarted) return
+    this.clearTimer()
+    this.blessingStarted = true
+    this.elapsedMs = this.stageDurations[AnimStage.APPEAR] + this.stageDurations[AnimStage.INCENSE]
+    this.isPlaying = true
+    this.currentStage = AnimStage.BLESSING
     this.runLoop()
   }
 
@@ -61,20 +78,11 @@ export class AnimController {
     this.isPlaying = false
   }
 
-  triggerKowtow(): boolean {
-    if (this.currentStage !== AnimStage.KOWTOW) return false
-    try {
-      this.onComplete?.(AnimStage.KOWTOW)
-    } catch (err) {
-      console.error('AnimController kowtow callback error:', JSON.stringify(err))
-    }
-    return true
-  }
-
   reset(): void {
     this.stop()
     this.currentStage = AnimStage.APPEAR
     this.elapsedMs = 0
+    this.blessingStarted = false
     this.speedMultiplier = 1.0
     this.onProgress = null
     this.onComplete = null
@@ -98,17 +106,56 @@ export class AnimController {
 
       this.elapsedMs += 16 * this.speedMultiplier
 
+      const incenseEnd = this.stageDurations[AnimStage.APPEAR] + this.stageDurations[AnimStage.INCENSE]
+
+      // 进香结束 → 进入交互磕头阶段，暂停等待用户
+      if (!this.blessingStarted && this.elapsedMs >= incenseEnd) {
+        this.currentStage = AnimStage.KOWTOW
+        this.clearTimer()
+        this.isPlaying = false
+        try {
+          this.onProgress?.(AnimStage.KOWTOW, 0)
+        } catch (err) {
+          console.error('AnimController progress callback error:', JSON.stringify(err))
+        }
+        return
+      }
+
+      // 完成祈福后跑 BLESSING
+      if (this.blessingStarted) {
+        const blessingDur = this.stageDurations[AnimStage.BLESSING]
+        const blessingElapsed = this.elapsedMs - incenseEnd
+        const progress = Math.min(blessingElapsed / blessingDur, 1.0)
+        if (this.currentStage !== AnimStage.BLESSING) {
+          this.currentStage = AnimStage.BLESSING
+        }
+        try {
+          this.onProgress?.(AnimStage.BLESSING, progress)
+        } catch (err) {
+          console.error('AnimController progress callback error:', JSON.stringify(err))
+        }
+        if (progress >= 1.0) {
+          this.clearTimer()
+          this.isPlaying = false
+          try {
+            this.onComplete?.(AnimStage.BLESSING)
+          } catch (err) {
+            console.error('AnimController complete callback error:', JSON.stringify(err))
+          }
+        }
+        return
+      }
+
+      // APPEAR / INCENSE 正常推进
       let accumulated = 0
-      for (const stage of [AnimStage.APPEAR, AnimStage.INCENSE, AnimStage.KOWTOW, AnimStage.BLESSING]) {
+      for (const stage of [AnimStage.APPEAR, AnimStage.INCENSE]) {
         const duration = this.stageDurations[stage]
         if (this.elapsedMs < accumulated + duration) {
           const stageElapsed = this.elapsedMs - accumulated
           const progress = Math.min(stageElapsed / duration, 1.0)
-
           if (this.currentStage !== stage) {
             this.currentStage = stage
           }
-
           try {
             this.onProgress?.(stage, progress)
           } catch (err) {
@@ -117,14 +164,6 @@ export class AnimController {
           return
         }
         accumulated += duration
-      }
-
-      this.clearTimer()
-      this.isPlaying = false
-      try {
-        this.onComplete?.(AnimStage.BLESSING)
-      } catch (err) {
-        console.error('AnimController complete callback error:', JSON.stringify(err))
       }
     }, 16)
   }

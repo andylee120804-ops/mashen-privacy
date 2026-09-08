@@ -3,7 +3,6 @@ import { ParticleCanvas, ParticleType } from '../components/ParticleCanvas'
 import { TipModal } from '../components/TipModal'
 import { MahjongTile } from '../components/MahjongTile'
 import { AudioManager } from '../service/AudioManager'
-import { SCENE_DEFS, SceneDef } from '../model/FortuneTypes'
 import { router } from '@kit.ArkUI'
 
 /**
@@ -158,14 +157,6 @@ struct BlessingCard {
                 .letterSpacing(1)
                 .margin({ bottom: 14 })
 
-              // 场景祝福（v1.3.0 场景矩阵）
-              Text(this.getSceneLine())
-                .fontSize(14)
-                .fontColor('rgba(249, 202, 36, 0.85)')
-                .textAlign(TextAlign.Center)
-                .width('100%')
-                .margin({ bottom: 12 })
-
               // 正文与尾联之间的钻石分隔
               Text('◆  ◆  ◆')
                 .fontSize(11)
@@ -298,20 +289,4 @@ struct BlessingCard {
     .height('100%')
   }
 
-  /** 场景祝福行：`✨ {场景名} · {场景祝福语}`，按日期+总祈福次数确定性取 */
-  private getSceneLine(): string {
-    const scene = SCENE_DEFS.find((s: SceneDef): boolean => s.id === this.viewModel.sceneId)
-    if (!scene || scene.blessings.length === 0) {
-      return ''
-    }
-    const dayOfYear = this.getDayOfYear()
-    const idx = (dayOfYear + this.viewModel.totalPrayers) % scene.blessings.length
-    return `✨ ${scene.name} · ${scene.blessings[idx]}`
-  }
-
-  private getDayOfYear(): number {
-    const now = new Date()
-    const start = new Date(now.getFullYear(), 0, 0)
-    return Math.floor((now.getTime() - start.getTime()) / 86400000)
-  }
 }

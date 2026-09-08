@@ -18,6 +18,7 @@ struct CustomizePage {
   private dragFrom: number = -1
   private dragIcon: string = '🀄'
   private dragTitle: string = ''
+  private dragIsMuyu: boolean = false
 
   aboutToAppear(): void {
     this.syncItems()
@@ -92,7 +93,7 @@ struct CustomizePage {
           Text(`可选已开 ${this.enabledCount()}/3`)
             .fontSize(11)
             .fontWeight(FontWeight.Bold)
-            .fontColor(this.enabledCount() >= 3 ? '#e74c3c' : 'rgba(249, 202, 36, 0.9)')
+            .fontColor(this.enabledCount() >= 3 ? '#f0533f' : 'rgba(249, 202, 36, 0.9)')
           Text('　🧧 我的（固定末位）')
             .fontSize(11)
             .fontColor('rgba(253, 246, 227, 0.6)')
@@ -102,7 +103,7 @@ struct CustomizePage {
 
         Text('长按行拖动调整顺序（底部 Tab 与「我的」入口共用此顺序）')
           .fontSize(10)
-          .fontColor('rgba(253, 246, 227, 0.45)')
+          .fontColor('rgba(253, 246, 227, 0.5)')
           .width('100%')
       }
       .width('100%')
@@ -118,8 +119,8 @@ struct CustomizePage {
       }
       .layoutWeight(1)
       .width('100%')
-      .padding({ left: 16, right: 16, bottom: 20 })
-      .edgeEffect(EdgeEffect.Spring)
+      .padding({ left: 16, right: 16, bottom: 28 })
+      .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       .scrollBar(BarState.Off)
       .onItemDragStart((event, itemIndex) => {
         this.dragFrom = itemIndex
@@ -127,6 +128,7 @@ struct CustomizePage {
         if (it) {
           this.dragIcon = this.entryConfigVM.getIcon(it.id)
           this.dragTitle = this.entryConfigVM.getTitle(it.id)
+          this.dragIsMuyu = it.id === 'muyu'
         }
         return this.DragPreview
       })
@@ -166,10 +168,19 @@ struct CustomizePage {
         .width(26)
         .textAlign(TextAlign.Center)
 
-      Text(this.entryConfigVM.getIcon(item.id))
-        .fontSize(22)
-        .fontColor('#f9ca24')
-        .margin({ left: 4 })
+      if (item.id === 'muyu') {
+        // 木鱼入口：真实木鱼图（emoji 无木鱼字形，🪵 会看成木头）
+        Image($rawfile('props/muyu.png'))
+          .width(26)
+          .height(26)
+          .objectFit(ImageFit.Contain)
+          .margin({ left: 4 })
+      } else {
+        Text(this.entryConfigVM.getIcon(item.id))
+          .fontSize(22)
+          .fontColor('#f9ca24')
+          .margin({ left: 4 })
+      }
 
       Column() {
         Text(this.entryConfigVM.getTitle(item.id))
@@ -191,6 +202,9 @@ struct CustomizePage {
           this.onToggle(item, isOn)
         })
     }
+    // 手柄/图标/两行标题/开关混排：统一底对齐，避免 AGC「控件基准线不对齐」
+    // （默认 Center 对齐时不同行高/字号底边错开）
+    .alignItems(VerticalAlign.Bottom)
     .width('100%')
     .padding(12)
     .backgroundColor('rgba(249, 202, 36, 0.05)')
@@ -201,8 +215,15 @@ struct CustomizePage {
   @Builder
   DragPreview() {
     Row() {
-      Text(this.dragIcon)
-        .fontSize(18)
+      if (this.dragIsMuyu) {
+        Image($rawfile('props/muyu.png'))
+          .width(22)
+          .height(22)
+          .objectFit(ImageFit.Contain)
+      } else {
+        Text(this.dragIcon)
+          .fontSize(18)
+      }
       Text(this.dragTitle)
         .fontSize(14)
         .fontColor('#f9ca24')

@@ -21,8 +21,6 @@ export class PrayerViewModel {
   userName: string = ''
   todayDeity: DeityInfo
   blessing: string = ''
-  // 祈福场景（v1.3.0 场景矩阵，NameCard 选择，BlessingCard 按场景出祝福语）
-  sceneId: string = 'wealth'
   kowtowCount: number = 0
   recentNames: string[] = []
   totalPrayers: number = 0
@@ -66,7 +64,6 @@ export class PrayerViewModel {
     this.currentPhase = PrayerPhase.IDLE
     this.userName = ''
     this.blessing = ''
-    this.sceneId = 'wealth'
     this.kowtowCount = 0
   }
 

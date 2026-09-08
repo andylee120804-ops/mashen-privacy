@@ -6,22 +6,27 @@
 // 属相/星座选择用页面内覆层（非 CustomDialog，见项目弹层经验）。
 // 数据由 FortuneTypes 确定性 PRNG 生成。
 import { FortuneViewModel } from '../viewmodels/FortuneViewModel'
+import { PageBack } from '../components/PageBack'
 import {
   ShengxiaoFortune, ZodiacFortune, SHENGXIAO, ZODIAC_SIGNS, PAIYUN_LEVELS,
   EMPTY_SHENGXIAO_FORTUNE, EMPTY_ZODIAC_FORTUNE,
   getAlmanacForDate, formatDate, dateOffsetStr, weekdayOf, starText,
   ShendanEntry, SHENDAN_LIST
 } from '../model/FortuneTypes'
+import { lunarTextOf } from '../model/LunarCalendar'
 
 @Component
 export struct FortuneAlmanacPage {
+  /** 独立模式（EntryShell 从「我的」进入）：返回键并入大标题行；Tab 模式不带 */
+  @Prop standalone: boolean = false
   @StorageLink('fortuneVM') fortuneVM: FortuneViewModel = new FortuneViewModel()
   // UI v1：@StorageLink 不通知 @Observed 嵌套变更；偏好（属相/星座/收藏）变更后
   // VM bump fortuneRev，这里 @Watch 重建神诞列表快照（连带全页重建读最新偏好）。
   @StorageLink('fortuneRev') @Watch('onFortuneRev') fortuneRev: number = 0
   @State seg: string = 'fortune'   // fortune=运势·黄历；shendan=财神历·神诞
   @State selDate: string = ''
-  @State showProfileOverlay: boolean = false
+  /** 属相/星座选择覆层：''=收起；'sx'=选属相；'zx'=选星座（两者独立弹层，可分开修改） */
+  @State overlayMode: string = ''
   @State shendanRows: ShendanEntry[] = []
 
   aboutToAppear(): void {
@@ -46,14 +51,27 @@ export struct FortuneAlmanacPage {
   build() {
     Stack() {
       Column() {
-        // 标题
-        Text('🗓️ 运势 · 黄历')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#f9ca24')
-          .width('100%')
-          .padding({ left: 20, top: 44, bottom: 8 })
-          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+        // 标题（独立模式返回键并入同行且标题居中，右侧配平占位与返回键等宽；
+        // Tab 模式不带返回，标题保持左对齐）
+        Row() {
+          if (this.standalone) {
+            PageBack()
+          }
+          Text('☯ 运势 · 黄历')
+            .fontSize(20)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#f9ca24')
+            .layoutWeight(1)
+            .textAlign(this.standalone ? TextAlign.Center : TextAlign.Start)
+          if (this.standalone) {
+            Text(' ')
+              .fontSize(14)
+              .width(76)
+          }
+        }
+        .width('100%')
+        .padding({ left: this.standalone ? 6 : 20, top: 44, bottom: 8 })
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
 
         // 段切换：运势·黄历 / 财神历·神诞（合并自独立神诞入口）
         this.SegBar()
@@ -61,8 +79,8 @@ export struct FortuneAlmanacPage {
         Scroll() {
           Column() {
             if (this.seg === 'fortune') {
+              // 顶部主卡（日期+牌运+黄历一体）→ 属相运势 → 星座运势
               this.DateNav()
-              this.AlmanacCard()
               this.ShengxiaoCard()
               this.ZodiacCard()
             } else {
@@ -70,7 +88,7 @@ export struct FortuneAlmanacPage {
             }
           }
           .width('100%')
-          .padding({ left: 16, right: 16, bottom: 20 })
+          .padding({ left: 16, right: 16, bottom: 28 })
         }
         .layoutWeight(1)
         .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
@@ -81,8 +99,8 @@ export struct FortuneAlmanacPage {
       .backgroundColor('#1a1a0a')
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
 
-      // 属相/星座选择覆层
-      if (this.showProfileOverlay) {
+      // 属相/星座选择覆层（模式驱动：'' 收起）
+      if (this.overlayMode !== '') {
         this.ProfileOverlay()
       }
     }
@@ -111,13 +129,54 @@ export struct FortuneAlmanacPage {
     return EMPTY_ZODIAC_FORTUNE
   }
 
+  /** 属相头部 chip：未选「点击设置」，已选「🐭鼠 · 修改」明确可再改 */
+  private sxChipLabel(): string {
+    if (this.fortuneVM.shengxiaoIdx >= 0) {
+      return `${SHENGXIAO[this.fortuneVM.shengxiaoIdx]} · 修改`
+    }
+    return '点击设置'
+  }
+
+  private zxChipLabel(): string {
+    if (this.fortuneVM.zodiacIdx >= 0) {
+      return `${ZODIAC_SIGNS[this.fortuneVM.zodiacIdx]} · 修改`
+    }
+    return '点击设置'
+  }
+
+  /** 选属相：点选即生效并收起（单模式弹层，可随时重选） */
+  private pickShengxiao(idx: number): void {
+    this.fortuneVM.setShengxiao(idx)
+    this.overlayMode = ''
+  }
+
+  private pickZodiac(idx: number): void {
+    this.fortuneVM.setZodiac(idx)
+    this.overlayMode = ''
+  }
+
+  /** 弹层副行：显示当前已选值，明确可随时更换 */
+  private overlayCurrent(): string {
+    if (this.overlayMode === 'sx') {
+      if (this.fortuneVM.shengxiaoIdx >= 0) {
+        return `当前：${SHENGXIAO[this.fortuneVM.shengxiaoIdx]}，点选即可更换`
+      }
+      return '尚未设置属相，点选即生效'
+    }
+    if (this.fortuneVM.zodiacIdx >= 0) {
+      return `当前：${ZODIAC_SIGNS[this.fortuneVM.zodiacIdx]}，点选即可更换`
+    }
+    return '尚未设置星座，点选即生效'
+  }
+
   // ── 段切换栏 ──
   @Builder
   SegBar() {
     Row() {
       Blank()
-      this.SegChip('fortune', '🗓️ 运势 · 黄历')
-      this.SegChip('shendan', '🧧 财神历 · 神诞')
+      // 短标签（页头大标题已含「运势 · 黄历」全名，胶囊只做段指示，避免同屏重复文案）
+      this.SegChip('fortune', '☯ 黄历')
+      this.SegChip('shendan', '🀅 神诞')
       Blank()
     }
     .width('100%')
@@ -201,83 +260,221 @@ export struct FortuneAlmanacPage {
     .margin({ bottom: 10 })
   }
 
-  // ── 日期切换 ──
+  // ── 顶部「今日」主卡：日期导航 + 牌运大字 + 当日黄历（宜/忌/吉位/花色）整合一体 ──
+  // 金线分区替代嵌套盒子，主卡不再出现属相信息（设置入口收敛到属相卡）。
   @Builder
   DateNav() {
-    Row() {
-      Text('‹')
-        .fontSize(22)
-        .fontColor('#f9ca24')
-        .padding(10)
-        .onClick(() => {
-          this.selDate = dateOffsetStr(this.selDate, -1)
-        })
-
-      Column() {
-        Text(this.isToday() ? '今天' : this.selDate)
-          .fontSize(15)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#fdf6e3')
-        Text(`星期${weekdayOf(this.selDate)} · 点击日期回到今天`)
-          .fontSize(10)
-          .fontColor('rgba(253, 246, 227, 0.6)')
-          .margin({ top: 2 })
-      }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Center)
-      .onClick(() => {
-        this.selDate = formatDate(new Date())
-      })
-
-      Text('›')
-        .fontSize(22)
-        .fontColor('#f9ca24')
-        .padding(10)
-        .onClick(() => {
-          this.selDate = dateOffsetStr(this.selDate, 1)
-        })
-    }
-    .width('100%')
-    .padding(10)
-    .backgroundColor('rgba(249, 202, 36, 0.05)')
-    .border({ width: 1, color: 'rgba(249, 202, 36, 0.12)', radius: 10 })
-    .margin({ bottom: 12 })
-  }
-
-  // ── 当日黄历 ──
-  @Builder
-  AlmanacCard() {
     Column() {
-      Text('📜 当日黄历')
-        .fontSize(14)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#f9ca24')
-        .width('100%')
-        .margin({ bottom: 8 })
+      // ① 日期导航行
+      Row() {
+        Text('‹')
+          .fontSize(22)
+          .fontColor('#f9ca24')
+          .padding(10)
+          .onClick(() => {
+            this.selDate = dateOffsetStr(this.selDate, -1)
+          })
 
+        Column() {
+          Text(this.isToday() ? '今天' : this.selDate)
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#fdf6e3')
+          Text(this.dateSubLine())
+            .fontSize(10)
+            .fontColor('rgba(253, 246, 227, 0.6)')
+            .margin({ top: 2 })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Center)
+        .onClick(() => {
+          this.selDate = formatDate(new Date())
+        })
+
+        Text('›')
+          .fontSize(22)
+          .fontColor('#f9ca24')
+          .padding(10)
+          .onClick(() => {
+            this.selDate = dateOffsetStr(this.selDate, 1)
+          })
+      }
+      .width('100%')
+
+      // 金线分区
+      Row()
+        .width('100%')
+        .height(0.5)
+        .backgroundColor('rgba(249, 202, 36, 0.14)')
+
+      // ② 牌运大区：适不适合打牌一眼可见
+      if (this.fortuneVM.shengxiaoIdx < 0) {
+        Row() {
+          Column() {
+            Text(this.isToday() ? '🀄 今日牌运' : '🀄 当日牌运')
+              .fontSize(13)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#fdf6e3')
+            Text(this.isToday() ? '选属相，看今天适不适合打牌' : '选属相，看当日牌运')
+              .fontSize(10)
+              .fontColor('rgba(249, 202, 36, 0.8)')
+              .margin({ top: 4 })
+          }
+          .alignItems(HorizontalAlign.Start)
+
+          Blank()
+
+          Text('去设置 ›')
+            .fontSize(12)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#1a1a0a')
+            .padding({ left: 12, right: 12, top: 5, bottom: 5 })
+            .backgroundColor('#f9ca24')
+            .borderRadius(13)
+        }
+        .width('100%')
+        .padding({ top: 12, bottom: 12 })
+        .onClick(() => {
+          this.overlayMode = 'sx'
+        })
+      } else {
+        Row() {
+          Column() {
+            Text(this.isToday() ? '🀄 今日牌运' : '🀄 当日牌运')
+              .fontSize(13)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#fdf6e3')
+            Text(PAIYUN_LEVELS[this.sxFortune().paiyun].text)
+              .fontSize(12)
+              .fontColor('rgba(253, 246, 227, 0.9)')
+              .margin({ top: 6 })
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+
+          Text(PAIYUN_LEVELS[this.sxFortune().paiyun].level)
+            .fontSize(46)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(PAIYUN_LEVELS[this.sxFortune().paiyun].color)
+            .lineHeight(54)
+        }
+        .width('100%')
+        .padding({ top: 8, bottom: 8 })
+      }
+
+      // 金线分区
+      Row()
+        .width('100%')
+        .height(0.5)
+        .backgroundColor('rgba(249, 202, 36, 0.14)')
+
+      // ③ 当日黄历：宜/忌 短句 + 吉位/幸运花色/幸运数字（并入主卡，不再单独成卡）
       Row() {
         this.AlmanacCol('宜', getAlmanacForDate(this.selDate).suitable)
         this.AlmanacCol('忌', getAlmanacForDate(this.selDate).avoid)
       }
       .width('100%')
+      .padding({ top: 10 })
 
-      Row() {
-        Text(`吉位：${getAlmanacForDate(this.selDate).direction}`)
+      Column() {
+        Text() {
+          Span(`吉位 ${getAlmanacForDate(this.selDate).direction} · 幸运花色 `)
+          Span(this.suitNameOf(getAlmanacForDate(this.selDate).luckySuit))
+            .fontSize(13)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#f9ca24')
+        }
           .fontSize(11)
-          .fontColor('rgba(253, 246, 227, 0.7)')
-          .layoutWeight(1)
-        Text(`幸运花色：${getAlmanacForDate(this.selDate).luckySuit}`)
-          .fontSize(11)
-          .fontColor('rgba(249, 202, 36, 0.8)')
+          .fontColor('rgba(253, 246, 227, 0.6)')
+        Row() {
+          Blank()
+          Text('幸运数字')
+            .fontSize(11)
+            .fontColor('rgba(253, 246, 227, 0.6)')
+          ForEach(this.luckyNumsOf(), (n: number) => {
+            Text(String(n))
+              .fontSize(13)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#1a1a0a')
+              .width(22)
+              .height(22)
+              .textAlign(TextAlign.Center)
+              .backgroundColor('#f9ca24')
+              .borderRadius(11)
+              .margin({ left: 6 })
+          }, (n: number) => String(n))
+          Blank()
+        }
+        .width('100%')
+        .margin({ top: 7 })
       }
       .width('100%')
-      .margin({ top: 10 })
+      .alignItems(HorizontalAlign.Center)
+      .margin({ top: 8 })
     }
     .width('100%')
-    .padding(14)
+    .padding({ left: 12, right: 12, top: 6, bottom: 12 })
     .backgroundColor('rgba(249, 202, 36, 0.05)')
-    .border({ width: 1, color: 'rgba(249, 202, 36, 0.12)', radius: 10 })
+    .border({ width: 1, color: 'rgba(249, 202, 36, 0.12)', radius: 12 })
     .margin({ bottom: 12 })
+  }
+
+  /** 日期副行：今天=阳历几号·星期·农历；其他日期=星期·农历·回今天提示 */
+  private dateSubLine(): string {
+    const parts: string[] = []
+    if (this.isToday()) {
+      parts.push(`阳历 ${this.solarMD()}`)
+    }
+    parts.push(`星期${weekdayOf(this.selDate)}`)
+    const lunar = lunarTextOf(this.selDate)
+    if (lunar !== '') {
+      parts.push(lunar)
+    }
+    if (!this.isToday()) {
+      parts.push('点日期回今天')
+    }
+    return parts.join(' · ')
+  }
+
+  /** 幸运花色去牌面 emoji 前缀：'🀇 条子' → '条子'（花色名已表意，emoji 只留重复信息） */
+  private suitNameOf(s: string): string {
+    const parts = s.split(' ')
+    return parts.length > 1 ? parts[parts.length - 1] : s
+  }
+
+  /** '2026-09-02' → '9月2日' */
+  private solarMD(): string {
+    const parts = this.selDate.split('-')
+    if (parts.length !== 3) {
+      return this.selDate
+    }
+    return `${Number(parts[1])}月${Number(parts[2])}日`
+  }
+
+  /** 主卡幸运数字：已选属相用属相运势数字；未选按日期确定性生成（同天恒定，1-9 不重复） */
+  private luckyNumsOf(): number[] {
+    if (this.fortuneVM.shengxiaoIdx >= 0) {
+      const nums = this.sxFortune().luckyNumbers
+      if (nums.length === 2) {
+        return nums
+      }
+    }
+    const parts = this.selDate.split('-')
+    if (parts.length !== 3) {
+      return [6, 8]
+    }
+    const base = Number(parts[0]) * 10000 + Number(parts[1]) * 100 + Number(parts[2])
+    let a = (base * 7) % 9 + 1
+    let b = (base * 13) % 9 + 1
+    if (b === a) {
+      b = (b % 8) + 1
+    }
+    if (a > b) {
+      const tmp = a
+      a = b
+      b = tmp
+    }
+    return [a, b]
   }
 
   @Builder
@@ -286,7 +483,7 @@ export struct FortuneAlmanacPage {
       Text(label)
         .fontSize(12)
         .fontWeight(FontWeight.Bold)
-        .fontColor(label === '宜' ? '#2ecc71' : '#e74c3c')
+        .fontColor(label === '宜' ? '#2ecc71' : '#f0533f')
       Text(value)
         .fontSize(13)
         .fontColor('#fdf6e3')
@@ -296,7 +493,7 @@ export struct FortuneAlmanacPage {
     .alignItems(HorizontalAlign.Center)
   }
 
-  // ── 属相运势卡（含今日牌运醒目大卡）──
+  // ── 属相运势卡（牌运大字已并入顶部日期卡）──
   @Builder
   ShengxiaoCard() {
     Column() {
@@ -306,23 +503,23 @@ export struct FortuneAlmanacPage {
           .fontWeight(FontWeight.Bold)
           .fontColor('#f9ca24')
         Blank()
-        Text(this.fortuneVM.shengxiaoIdx >= 0 ? SHENGXIAO[this.fortuneVM.shengxiaoIdx] : '点击设置')
+        Text(this.sxChipLabel())
           .fontSize(12)
           .fontColor('rgba(249, 202, 36, 0.8)')
           .onClick(() => {
-            this.showProfileOverlay = true
+            this.overlayMode = 'sx'
           })
       }
       .width('100%')
       .margin({ bottom: 10 })
 
       if (this.fortuneVM.shengxiaoIdx < 0) {
-        Text('设置属相后，查看今日牌运、宜忌与幸运数字')
+        Text('设置属相后，查看牌运、宜忌与幸运数字')
           .fontSize(12)
           .fontColor('rgba(253, 246, 227, 0.6)')
           .padding({ top: 8, bottom: 8 })
           .onClick(() => {
-            this.showProfileOverlay = true
+            this.overlayMode = 'sx'
           })
       } else {
         // 星级 + 总评
@@ -335,34 +532,9 @@ export struct FortuneAlmanacPage {
           .fontColor('rgba(253, 246, 227, 0.85)')
           .margin({ bottom: 10 })
 
-        // 今日牌运（全页视觉重点）
-        Row() {
-          Text('🀄 今日牌运')
-            .fontSize(13)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#fdf6e3')
-            .layoutWeight(1)
-          Column() {
-            Text(PAIYUN_LEVELS[this.sxFortune().paiyun].level)
-              .fontSize(34)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(PAIYUN_LEVELS[this.sxFortune().paiyun].color)
-            Text(PAIYUN_LEVELS[this.sxFortune().paiyun].text)
-              .fontSize(11)
-              .fontColor('rgba(253, 246, 227, 0.6)')
-              .margin({ top: 2 })
-          }
-          .alignItems(HorizontalAlign.Center)
-        }
-        .width('100%')
-        .padding({ top: 14, bottom: 14 })
-        .backgroundColor('rgba(249, 202, 36, 0.06)')
-        .border({ width: 1.5, color: PAIYUN_LEVELS[this.sxFortune().paiyun].color, radius: 12 })
-        .margin({ bottom: 10 })
-
-        // 宜 / 忌 chips
-        this.ChipsRow('✅', this.sxFortune().yi, true)
-        this.ChipsRow('❌', this.sxFortune().ji, false)
+        // 宜 / 忌 chips（牌运已并入顶部日期卡）
+        this.ChipsRow(this.sxFortune().yi, true)
+        this.ChipsRow(this.sxFortune().ji, false)
 
         // 幸运数字 + 幸运颜色
         this.LuckyRow(this.sxFortune().luckyNumbers, this.sxFortune().luckyColor.name, this.sxFortune().luckyColor.hex)
@@ -380,16 +552,16 @@ export struct FortuneAlmanacPage {
   ZodiacCard() {
     Column() {
       Row() {
-        Text('✨ 星座运势')
+        Text('🀄 星座运势')
           .fontSize(14)
           .fontWeight(FontWeight.Bold)
           .fontColor('#f9ca24')
         Blank()
-        Text(this.fortuneVM.zodiacIdx >= 0 ? ZODIAC_SIGNS[this.fortuneVM.zodiacIdx] : '点击设置')
+        Text(this.zxChipLabel())
           .fontSize(12)
           .fontColor('rgba(249, 202, 36, 0.8)')
           .onClick(() => {
-            this.showProfileOverlay = true
+            this.overlayMode = 'zx'
           })
       }
       .width('100%')
@@ -401,7 +573,7 @@ export struct FortuneAlmanacPage {
           .fontColor('rgba(253, 246, 227, 0.6)')
           .padding({ top: 8, bottom: 8 })
           .onClick(() => {
-            this.showProfileOverlay = true
+            this.overlayMode = 'zx'
           })
       } else {
         Text(starText(this.zxFortune().stars))
@@ -409,9 +581,9 @@ export struct FortuneAlmanacPage {
           .fontColor('#f9ca24')
           .margin({ bottom: 8 })
 
-        this.ZodiacLine('💕 爱情', this.zxFortune().love)
-        this.ZodiacLine('💼 事业', this.zxFortune().career)
-        this.ZodiacLine('💰 财运', this.zxFortune().wealth)
+        this.ZodiacLine('✦ 爱情', this.zxFortune().love)
+        this.ZodiacLine('✦ 事业', this.zxFortune().career)
+        this.ZodiacLine('✦ 财运', this.zxFortune().wealth)
 
         this.LuckyRow(this.zxFortune().luckyNumbers, this.zxFortune().luckyColor.name, this.zxFortune().luckyColor.hex)
       }
@@ -438,18 +610,20 @@ export struct FortuneAlmanacPage {
     .margin({ bottom: 8 })
   }
 
-  // ── 宜 / 忌 chips 行 ──
+  // ── 宜 / 忌 chips 行（✓/✗ 为随文字色的字形符号，非彩色 emoji）──
   @Builder
-  ChipsRow(icon: string, items: string[], isYi: boolean) {
+  ChipsRow(items: string[], isYi: boolean) {
     Row() {
-      Text(icon)
+      Text(isYi ? '✓' : '✗')
         .fontSize(14)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(isYi ? '#2ecc71' : '#e74c3c')
         .width(24)
       Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(items, (it: string) => {
           Text(it)
             .fontSize(11)
-            .fontColor(isYi ? '#2ecc71' : '#e74c3c')
+            .fontColor(isYi ? '#2ecc71' : '#ff6b5e')
             .padding({ left: 8, right: 8, top: 3, bottom: 3 })
             .backgroundColor(isYi ? 'rgba(46, 204, 113, 0.1)' : 'rgba(231, 76, 60, 0.1)')
             .borderRadius(10)
@@ -485,9 +659,12 @@ export struct FortuneAlmanacPage {
           .fontSize(10)
           .fontColor('rgba(253, 246, 227, 0.6)')
         Row() {
-          Text('●')
-            .fontSize(16)
-            .fontColor(colorHex)
+          // 颜色用图形色块而非字形：字形会被按文字对比度采样（紫气东来等暗色不达标）
+          Row()
+            .width(14)
+            .height(14)
+            .borderRadius(7)
+            .backgroundColor(colorHex)
           Text(colorName)
             .fontSize(14)
             .fontColor('#fdf6e3')
@@ -501,7 +678,7 @@ export struct FortuneAlmanacPage {
     .margin({ top: 6, bottom: 4 })
   }
 
-  // ── 属相 / 星座选择覆层（页面内覆层，非 CustomDialog）──
+  // ── 属相 / 星座选择覆层（独立弹层：overlayMode='sx' 只选属相，'zx' 只选星座）──
   @Builder
   ProfileOverlay() {
     Stack() {
@@ -511,62 +688,56 @@ export struct FortuneAlmanacPage {
         .backgroundColor('rgba(0, 0, 0, 0.65)')
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
         .onClick(() => {
-          this.showProfileOverlay = false
+          this.overlayMode = ''
         })
 
       Column() {
-        Text('选择属相')
+        Text(this.overlayMode === 'sx' ? '选择属相' : '选择星座')
           .fontSize(15)
           .fontWeight(FontWeight.Bold)
           .fontColor('#f9ca24')
           .width('100%')
-          .margin({ bottom: 10 })
+          .margin({ bottom: 8 })
 
-        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center }) {
-          ForEach(SHENGXIAO, (s: string, idx: number) => {
-            Text(s)
-              .fontSize(13)
-              .fontColor(this.fortuneVM.shengxiaoIdx === idx ? '#1a1a0a' : '#fdf6e3')
-              .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-              .backgroundColor(this.fortuneVM.shengxiaoIdx === idx ? '#f9ca24' : 'rgba(249, 202, 36, 0.08)')
-              .borderRadius(14)
-              .margin({ right: 6, bottom: 8 })
-              .onClick(() => {
-                this.fortuneVM.setShengxiao(idx)
-              })
-          }, (s: string) => s)
-        }
-        .width('100%')
-        .margin({ bottom: 16 })
-
-        Row()
-          .width('60%')
-          .height(0.5)
-          .backgroundColor('rgba(249, 202, 36, 0.15)')
-          .margin({ bottom: 16 })
-
-        Text('选择星座')
-          .fontSize(15)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#f9ca24')
+        Text(this.overlayCurrent())
+          .fontSize(11)
+          .fontColor('rgba(253, 246, 227, 0.65)')
           .width('100%')
-          .margin({ bottom: 10 })
+          .margin({ bottom: 12 })
 
-        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center }) {
-          ForEach(ZODIAC_SIGNS, (s: string, idx: number) => {
-            Text(s)
-              .fontSize(13)
-              .fontColor(this.fortuneVM.zodiacIdx === idx ? '#1a1a0a' : '#fdf6e3')
-              .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-              .backgroundColor(this.fortuneVM.zodiacIdx === idx ? '#f9ca24' : 'rgba(249, 202, 36, 0.08)')
-              .borderRadius(14)
-              .margin({ right: 6, bottom: 8 })
-              .onClick(() => {
-                this.fortuneVM.setZodiac(idx)
-              })
-          }, (s: string) => s)
+        if (this.overlayMode === 'sx') {
+          Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center }) {
+            ForEach(SHENGXIAO, (s: string, idx: number) => {
+              Text(s)
+                .fontSize(13)
+                .fontColor(this.fortuneVM.shengxiaoIdx === idx ? '#1a1a0a' : '#fdf6e3')
+                .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+                .backgroundColor(this.fortuneVM.shengxiaoIdx === idx ? '#f9ca24' : 'rgba(249, 202, 36, 0.08)')
+                .borderRadius(14)
+                .margin({ right: 6, bottom: 8 })
+                .onClick(() => {
+                  this.pickShengxiao(idx)
+                })
+            }, (s: string) => s)
+          }
+          .width('100%')
+        } else {
+          Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center }) {
+            ForEach(ZODIAC_SIGNS, (s: string, idx: number) => {
+              Text(s)
+                .fontSize(13)
+                .fontColor(this.fortuneVM.zodiacIdx === idx ? '#1a1a0a' : '#fdf6e3')
+                .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+                .backgroundColor(this.fortuneVM.zodiacIdx === idx ? '#f9ca24' : 'rgba(249, 202, 36, 0.08)')
+                .borderRadius(14)
+                .margin({ right: 6, bottom: 8 })
+                .onClick(() => {
+                  this.pickZodiac(idx)
+                })
+            }, (s: string) => s)
+          }
+          .width('100%')
         }
-        .width('100%')
 
         Button('完成')
           .fontSize(13)
@@ -577,7 +748,7 @@ export struct FortuneAlmanacPage {
           .width('100%')
           .margin({ top: 18 })
           .onClick(() => {
-            this.showProfileOverlay = false
+            this.overlayMode = ''
           })
       }
       .width('86%')

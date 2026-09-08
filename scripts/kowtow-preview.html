@@ -1,0 +1,29 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+body{margin:0;background:#1a1a0a;font-family:system-ui;color:#f9ca24;display:flex;flex-direction:column;align-items:center;padding:24px}
+h2{font-size:20px;margin:8px 0 20px}
+.row{display:flex;gap:24px;align-items:flex-end;flex-wrap:wrap;justify-content:center}
+.col{display:flex;flex-direction:column;align-items:center;gap:8px}
+.col h3{font-size:14px;margin:0;color:#fdf6e3;text-align:center}
+.col .sub{font-size:11px;color:rgba(253,246,227,0.55);max-width:220px;text-align:center;line-height:1.5}
+.box{width:240px;height:300px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);border:1px solid rgba(249,202,36,0.2);border-radius:12px}
+.box img{max-width:100%;max-height:100%;object-fit:contain}
+</style></head><body>
+  <h2>方案2 磕头姿势调试 · 三帧对比</h2>
+  <div class="row">
+    <div class="col">
+      <h3>① 原图（站立）</h3>
+      <div class="box"><img src="../entry/src/main/resources/rawfile/props/worshipper_bow1.png"></div>
+      <div class="sub">底图。腰直立、手在身后</div>
+    </div>
+    <div class="col">
+      <h3>② 编辑：深弯腰</h3>
+      <div class="box"><img src="kowtow-frames/test_deepbow.png"></div>
+      <div class="sub">结果：跪下了，但腰没弯、没磕头</div>
+    </div>
+    <div class="col">
+      <h3>③ 编辑：伏地触地</h3>
+      <div class="box"><img src="kowtow-frames/test_prostration.png"></div>
+      <div class="sub">更强指令。看：头是否触地、上身是否趴平</div>
+    </div>
+  </div>
+</body></html>

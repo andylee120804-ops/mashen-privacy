@@ -9,8 +9,8 @@ export interface CheckinState {
 
 /** 单场牌局结果 */
 export interface GameResult {
-  result: '+' | '·'      // + 赢 · 输/平
-  magnitude: number      // 幅度 1-9
+  result: '+' | '-' | '·'  // + 赢 - 输 · 平
+  magnitude: number         // 幅度 1-99
 }
 
 /** 某天的牌运记录 */
@@ -71,7 +71,7 @@ export interface BadgeDef {
 
 /** 成就徽章定义 */
 export const BADGE_DEFS: BadgeDef[] = [
-  { badgeId: 'first_prayer', name: '初入牌局', icon: '🀄', desc: '完成首次祈福' },
+  { badgeId: 'first_prayer', name: '初入牌局', icon: '🀅', desc: '完成首次祈福' },
   { badgeId: 'kowtow_100', name: '百拜成金', icon: '🏅', desc: '累计磕头 100 次' },
   { badgeId: 'streak_7', name: '虔诚信徒', icon: '🔥', desc: '连续签到 7 天' },
   { badgeId: 'all_deities', name: '五路通拜', icon: '🌟', desc: '拜过所有 5 位财神' },

@@ -1,6 +1,6 @@
 # 麻神祈福 - AGC 云函数
 
-3 个云函数 + 共享库，为排行榜与心愿墙提供后端。
+4 个云函数 + 共享库，为排行榜、心愿墙与牌局记录云备份提供后端。
 
 ## 目录结构
 
@@ -16,6 +16,9 @@ cloud/
 │   ├── handler.js
 │   └── package.json
 ├── wish-wall/               # 心愿墙 list/create/fulfill
+│   ├── handler.js
+│   └── package.json
+├── game-record-backup/      # 牌局记录云备份 pull/push（仅本人）
 │   ├── handler.js
 │   └── package.json
 ├── deploy.cjs               # 打包脚本
@@ -66,6 +69,22 @@ cloud/
 | fulfilled | Boolean | | 是否已还愿 |
 | createdAt | String | | 发布时间（ISO） |
 | fulfilledAt | String | | 还愿时间（ISO） |
+
+### GameBackup 对象类型（牌局记录云备份，仅本人可见）
+
+| 字段 | 类型 | 主键 | 说明 |
+|------|------|------|------|
+| userId | String | ✅ | 设备匿名 ID（复合主键之一） |
+| date | String | ✅ | 记录日期 YYYY-MM-DD（复合主键之一） |
+| deityId | Integer | | 当天拜的财神 ID |
+| kowtowCount | Integer | | 当天磕头次数 |
+| games | String | | 每局结果数组的 JSON 字符串（Cloud DB 无数组类型） |
+| note | String | | 备注（≤200 字） |
+| updatedAt | String | | 最后同步时间（ISO） |
+
+> 每天一行、复合主键 `(userId, date)`，upsert 幂等可重复推送；
+> games 用 JSON 字符串承载（如 `[{"result":"+","magnitude":5}]`），
+> 避免依赖 Cloud DB 大 String 字段上限而把整份快照塞进单行。
 
 ## 部署步骤
 
@@ -121,8 +140,11 @@ cloud/
    |----------|-------------------|------------------------|-------------------|-------------------------------|
    | Leaderboard | Read | Read | Read, Upsert | Read, Upsert, Delete |
    | Wish | Read | Read | Read, Upsert, Delete | Read, Upsert, Delete |
+   | GameBackup | —（无权限） | —（无权限） | Read, Upsert | Read, Upsert, Delete |
 
    - World/Authenticated 只读：排行榜、心愿墙是公开展示内容，读对所有人开放。
+   - GameBackup 是**私有数据**（仅本人可见），World/Authenticated 权限为空、
+     无 Read 权，Creator 仅 Read/Upsert 自己的行——牌局记录不向任何其他用户公开。
    - Creator 可改自己的记录（Wish 含 Delete，发布者可删自己心愿；还愿仅本人由云函数
      `wish.userId !== uid` → FORBIDDEN 兜底，不依赖 ACL）。
    - **Administrator 必须全权限**：云函数用服务端 SDK + API Client 凭证以应用管理员
@@ -130,17 +152,18 @@ cloud/
    - 客户端不直连 Cloud DB（`CloudService.ets` 只用 `cloudFunction.call` 中转），
      故 World/Authenticated/Creator 实际不会被触发，设保守值即可，主要供审核看数据安全。
 
-6. **部署云函数**：AGC 控制台 → 构建 → 云函数 → 创建函数，依次上传 3 个 zip。
+6. **部署云函数**：AGC 控制台 → 构建 → 云函数 → 创建函数，依次上传 4 个 zip。
    每个 zip 已含 `handler.js`（导出 `myHandler`）+ `shared/` + `node_modules/`
    （含 `@hw-agconnect/cloud-server`）+ `agc-credential.json`，正斜杠路径，可直接上传。
 
-   **3 个函数的对应关系**（函数名必须与客户端 `cloudFunction.call({ name })` 逐字一致）：
+   **4 个函数的对应关系**（函数名必须与客户端 `cloudFunction.call({ name })` 逐字一致）：
 
    | 上传的 zip | 控制台函数名 | 客户端调用 | 作用 |
    |-----------|-------------|-----------|------|
    | `cloud/update-prayer-count/update-prayer-count.zip` | `update-prayer-count` | [CloudService.ets:57](../entry/src/main/ets/service/CloudService.ets#L57) | 祈福后上报次数 |
    | `cloud/get-leaderboard/get-leaderboard.zip` | `get-leaderboard` | [CloudService.ets:77](../entry/src/main/ets/service/CloudService.ets#L77) | 查日/周/总榜 + 今日香火人数 |
    | `cloud/wish-wall/wish-wall.zip` | `wish-wall` | [CloudService.ets:124](../entry/src/main/ets/service/CloudService.ets#L124) | 心愿墙列表/发布/还愿 |
+   | `cloud/game-record-backup/game-record-backup.zip` | `game-record-backup` | [CloudService.ets:210](../entry/src/main/ets/service/CloudService.ets#L210) | 牌局记录拉取/推送备份 |
 
    **每个函数的创建参数**：
    - 函数名：照上表填（kebab-case，小写连字符）
@@ -166,6 +189,10 @@ cloud/
      `{ "nickname": "测***", "kowtowCount": 3, "streak": 1, "__uid": "test123" }`
      期望返回：`{ "code": 0, ... "data": { "updated": true } }`，且 Cloud DB
      `Leaderboard` 表多一条 `userId=test123` 记录。
+   - `game-record-backup` 测试入参（push）：
+     `{ "action": "push", "__uid": "test123", "records": [{ "date": "2026-09-08", "deityId": 1, "kowtowCount": 3, "games": [{ "result": "+", "magnitude": 5 }], "note": "测试" }] }`
+     期望返回：`{ "code": 0, "data": { "pushed": 1 } }`；再测 pull：
+     `{ "action": "pull", "__uid": "test123" }` 应返回该条记录。测完记得清库。
    - 报 401 `client token auth failed` → 凭证问题（见下「凭证说明」）。
    - 报 `3037003 primary key missing` → 对象类型未导入或字段名不符。
    - 报 `2002037 CloudDBZone does not exist` → 存储区 `Mashen` 没建（见步骤 4）。
@@ -190,6 +217,29 @@ cloud/
 `shared/db.js` 的 `createInstance(path, 'mashen-cloud-db')` 用了唯一实例名。仍 401 再
 回用户中心重建 API Client 换新凭证，替换 `cloud/agc-credential.json` 后重新
 `node cloud/deploy.cjs` 打包并重新上传 zip。`agc-credential.json` 已 gitignore，不会提交。
+
+## ⚠️ 提审前必做：清空云端测试数据
+
+还愿 tab（wish-wall list）与排行榜 tab（get-leaderboard）对**所有用户**展示全量数据，
+没有用户过滤。开发/测试期间产生的心愿、祈福记录会出现在任何新用户的首次进入画面，
+华为审核实测会判「应用内含有测试数据」（审核指南 3.4 项），务必在**每次提审前**执行：
+
+```bash
+cd cloud
+# NODE_PATH 指向函数目录的依赖（SDK 只在各函数 node_modules 里）
+export NODE_PATH="$(pwd)/wish-wall/node_modules"
+node cleanup-cloud-db.cjs            # 先统计（只读）
+node cleanup-cloud-db.cjs --yes      # 确认后删除 Wish / Leaderboard / GameBackup 全部记录
+```
+
+- 脚本用 `agc-credential.json` 直连 Cloud DB，删除 `Wish` / `Leaderboard` / `GameBackup`
+  三个集合的全部记录（分批查询+删除，幂等可重复执行）。
+- 运行前提：凭证有效 + 存储区 `Mashen` 已创建（未部署云端时运行会报
+  `2002037 CloudDBZone does not exist`，属正常提示）。
+- 删除不可恢复。建议提审流程：**清库 → 构建 release 包 → 提审**，提审后不要再做
+  真机祈福/心愿测试（会重新产生测试数据）。
+- 如需本地开发联调，用完即清；云函数「测试」页的 `__uid: "test123"` 也会写库，
+  测完顺手清掉。
 
 ## 客户端调用约定
 

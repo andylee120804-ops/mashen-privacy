@@ -6,6 +6,7 @@ import { DeityArrayView } from '../components/DeityArrayView'
 import { DailyAlmanac } from '../components/DailyAlmanac'
 import { PrivacyDialog } from '../components/PrivacyDialog'
 import { MahjongTile } from '../components/MahjongTile'
+import { BouncePage } from '../components/BouncePage'
 import { FIVE_DEITIES } from '../model/PrayerTypes'
 import { BADGE_DEFS } from '../model/EnrichTypes'
 import { WishWallPage } from './WishWall'
@@ -14,6 +15,8 @@ import { MuyuPage } from './MuyuPage'
 import { FortuneAlmanacPage } from './FortuneAlmanacPage'
 import { LeaderboardPage } from './Leaderboard'
 import { EncyclopediaPage } from './EncyclopediaPage'
+import { GameRecordPage } from './GameRecordPage'
+import { MahjongTipsPage } from './MahjongTipsPage'
 import { MyPage } from './MyPage'
 import { router } from '@kit.ArkUI'
 
@@ -132,16 +135,11 @@ struct MainTabs {
         ForEach(this.tabDefs, (def: EntryDef, idx: number) => {
           TabContent() {
             if (def.id === 'blessing') {
-              // 祈福页为固定全屏布局：包一层垂直 Scroll，让上下滑动到边界有
-              // Spring 回弹反馈（AGC「滑动动效」标准：滑动到边界必须有反馈动效）
-              Scroll() {
+              // 祈福页为固定全屏布局：BouncePage 内容恒比视口高 8vp（实测视口+8），
+              // 滚动区间 >0，上下滑动到边界必有 Spring 回弹（AGC「滑动动效」标准）
+              BouncePage() {
                 this.BlessingSquare()
               }
-              .width('100%')
-              .height('100%')
-              .scrollable(ScrollDirection.Vertical)
-              .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
-              .scrollBar(BarState.Off)
             } else if (def.id === 'mine') {
               MyPage()
             } else {
@@ -149,15 +147,15 @@ struct MainTabs {
               this.EntryContent(def.id)
             }
           }
-          .tabBar(this.TabBarBuilder(idx, def.icon, def.title))
+          .tabBar(this.TabBarBuilder(idx, def))
         }, (def: EntryDef) => def.id)
       }
       // 底部导航栏：Tabs 默认 BarPosition.Start 渲染在顶部，沉浸式下易与状态栏重叠
       // 导致点击不响应；显式指定 End 让 Tab 栏落在底部可点击安全区。
       .barPosition(BarPosition.End)
       // barHeight 含底部手势导航条高度，配合 TabBarBuilder 内 padding({bottom}) 把
-      // 图标/文字顶到安全区上方，避免与手势条重叠、显得"太贴底"。
-      .barHeight(72)
+      // 图标/文字顶到安全区上方（下缘距屏底 ≥28vp），避免与手势条/三键导航重叠。
+      .barHeight(84)
       .barMode(BarMode.Fixed)
       .barBackgroundColor('#1a1a0a')
       // 滑到首尾 Tab 边界时回弹，满足 AGC「滑动到边界有反馈动效」质量标准
@@ -177,17 +175,15 @@ struct MainTabs {
   @Builder
   EntryContent(id: string) {
     if (id === 'qiuqian') {
-      // 求签页同为固定全屏布局：包一层垂直 Scroll，保证上下边界有回弹反馈
-      Scroll() {
+      // 求签页同为固定全屏布局：BouncePage 内容恒超视口 8vp，上下边界有回弹
+      BouncePage() {
         QiuQianPage()
       }
-      .width('100%')
-      .height('100%')
-      .scrollable(ScrollDirection.Vertical)
-      .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
-      .scrollBar(BarState.Off)
     } else if (id === 'muyu') {
-      MuyuPage()
+      // 木鱼页固定全屏：同上，BouncePage 保证滑动到边界有回弹反馈
+      BouncePage() {
+        MuyuPage()
+      }
     } else if (id === 'fortune') {
       FortuneAlmanacPage()
     } else if (id === 'wishwall') {
@@ -196,23 +192,36 @@ struct MainTabs {
       LeaderboardPage()
     } else if (id === 'encyclopedia') {
       EncyclopediaPage()
+    } else if (id === 'gamerecord') {
+      // 记录牌局：与「我的」页置顶卡片共用同一份数据（同 enrichViewModel）
+      GameRecordPage()
+    } else if (id === 'tips') {
+      MahjongTipsPage()
     }
   }
 
   @Builder
-  TabBarBuilder(index: number, icon: string, title: string) {
+  TabBarBuilder(index: number, def: EntryDef) {
     Column() {
-      Text(icon)
-        .fontSize(22)
-        .fontColor('#f9ca24')
-      Text(title)
+      if (def.id === 'muyu') {
+        // 木鱼入口：真实木鱼图（emoji 无木鱼字形，🪵 会看成木头）
+        Image($rawfile('props/muyu.png'))
+          .width(24)
+          .height(24)
+          .objectFit(ImageFit.Contain)
+      } else {
+        Text(def.icon)
+          .fontSize(22)
+          .fontColor('#f9ca24')
+      }
+      Text(def.title)
         .fontSize(10)
         .fontColor(this.currentTab === index ? '#f9ca24' : 'rgba(253, 246, 227, 0.5)')
         .margin({ top: 3 })
     }
     .width('100%')
     .height('100%')
-    .padding({ top: 6, bottom: 18 }) // bottom 留出手势导航条空间，图标上移到可点击安全区
+    .padding({ top: 8, bottom: 32 }) // bottom 留出手势导航条空间，图标/文字下缘距屏底 ≥28vp
     .justifyContent(FlexAlign.Center)
     .backgroundColor(this.currentTab === index ? 'rgba(249, 202, 36, 0.08)' : 'transparent')
   }

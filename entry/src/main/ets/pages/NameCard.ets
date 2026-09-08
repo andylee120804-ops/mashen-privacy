@@ -4,7 +4,6 @@ import { CloudService } from '../service/CloudService'
 import { MahjongTile } from '../components/MahjongTile'
 import { FIVE_DEITIES, DeityInfo } from '../model/PrayerTypes'
 import { WISH_TEMPLATES } from '../model/CultureContent'
-import { SCENE_DEFS, SceneDef } from '../model/FortuneTypes'
 import { router } from '@kit.ArkUI'
 
 @Entry
@@ -74,7 +73,7 @@ struct NameCard {
                     .margin({ left: 6 })
                   Text(' ×')
                     .fontSize(10)
-                    .fontColor('rgba(249, 202, 36, 0.6)')
+                    .fontColor('rgba(249, 202, 36, 0.7)')
                 }
                 .padding({ left: 8, right: 8, top: 4, bottom: 4 })
                 .backgroundColor('rgba(249, 202, 36, 0.1)')
@@ -131,27 +130,6 @@ struct NameCard {
               .margin({ right: 6, bottom: 6 })
               .onClick(() => { this.wishContent = tpl })
           })
-        }
-        .width('75%')
-        .margin({ bottom: 12 })
-
-        // 祈福场景（v1.3.0 场景矩阵：场景 → 专属祝福）
-        Text('🎯 祈福场景')
-          .fontSize(13)
-          .fontColor('rgba(249, 202, 36, 0.6)')
-          .margin({ bottom: 8 })
-
-        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center }) {
-          ForEach(SCENE_DEFS, (scene: SceneDef) => {
-            Text(`${scene.icon} ${scene.name}`)
-              .fontSize(11)
-              .fontColor(this.viewModel.sceneId === scene.id ? '#1a1a0a' : 'rgba(249, 202, 36, 0.75)')
-              .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-              .backgroundColor(this.viewModel.sceneId === scene.id ? '#f9ca24' : 'rgba(249, 202, 36, 0.08)')
-              .borderRadius(14)
-              .margin({ right: 6, bottom: 6 })
-              .onClick(() => { this.viewModel.sceneId = scene.id })
-          }, (scene: SceneDef) => scene.id)
         }
         .width('75%')
         .margin({ bottom: 12 })

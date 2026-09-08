@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 250" width="220" height="300">
+  <rect width="180" height="250" fill="#1a1a0a"/>
+  <!-- 袍摆底座 -->
+  <path d="M50,180 L130,180 L152,240 L28,240 Z" fill="#a93226"/>
+  <line x1="90" y1="180" x2="90" y2="240" stroke="#7b241c" stroke-width="2"/>
+  <!-- 上身+头+手 组（深弯腰 -70°，绕髋部 185 旋转） -->
+  <g transform="rotate(-70 90 185)">
+    <path d="M58,112 L122,112 L134,185 L46,185 Z" fill="#c0392b"/>
+    <path d="M58,112 L122,112 L116,127 L64,127 Z" fill="#f9ca24"/>
+    <line x1="90" y1="127" x2="90" y2="185" stroke="#f9ca24" stroke-width="2"/>
+    <ellipse cx="90" cy="170" rx="11" ry="7" fill="#f5cba7"/>
+    <ellipse cx="90" cy="68" rx="35" ry="37" fill="#2c2c2c"/>
+    <circle cx="90" cy="30" r="12" fill="#2c2c2c"/>
+    <path d="M55,75 Q90,87 125,75" stroke="#f9ca24" stroke-width="3" fill="none"/>
+  </g>
+  <text x="90" y="248" font-size="11" fill="rgba(249,202,36,0.7)" text-anchor="middle" font-family="sans-serif">深弯腰 -70°（磕头触地）</text>
+</svg>

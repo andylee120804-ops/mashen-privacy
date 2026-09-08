@@ -1,0 +1,42 @@
+# HarmonyOS
+.idea/
+.build/
+.hvigor/
+oh_modules/
+entry/build/
+entry/.preview/
+node_modules/
+local.properties
+
+# 签名凭据 - 包含 keyPassword/storePassword，不可提交
+build-profile.json5
+entry/build-profile.json5
+*.p12
+*.p7b
+*.cer
+*.csr
+/mashen.csr
+
+# 构建产物 / 开发缓存
+/build/
+/.appanalyzer/
+/material/
+/cloud/game-record-backup/
+
+# 素材生成中间产物（scripts/ 保留生成代码，不入库媒体帧）
+/scripts/*.mp4
+/scripts/*.mp3
+/scripts/*.png
+/scripts/*-frames/
+/scripts/*-frames-*/
+/scripts/v4-frames/
+/scripts/屏幕截图*.png
+animation-preview.html
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 临时
+*.log
+hs_err_pid*.log

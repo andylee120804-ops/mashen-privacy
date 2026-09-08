@@ -119,46 +119,6 @@ export const EMPTY_ZODIAC_FORTUNE: ZodiacFortune = {
   luckyColor: { name: '', hex: '#f9ca24' }
 }
 
-// ── 场景矩阵（祈福场景选择）──
-export interface SceneDef {
-  id: string
-  icon: string
-  name: string
-  guide: string
-  blessings: string[]      // 场景专属祝福语池
-}
-
-export const SCENE_DEFS: SceneDef[] = [
-  {
-    id: 'wealth', icon: '💰', name: '求财', guide: '愿财源广进，牌运亨通',
-    blessings: ['愿财源广进，牌运亨通', '愿点石成金，横财就手', '愿金玉满堂，日进斗金', '愿手气红火，把把自摸']
-  },
-  {
-    id: 'career', icon: '💼', name: '事业', guide: '愿步步高升，贵人相助',
-    blessings: ['愿步步高升，贵人在侧', '愿事业顺遂，大展宏图', '愿机遇不断，扶摇直上', '愿口碑载道，名利双收']
-  },
-  {
-    id: 'exam', icon: '📖', name: '考试', guide: '愿金榜题名，逢考必过',
-    blessings: ['愿金榜题名，逢考必过', '愿下笔有神，文思泉涌', '愿记忆超群，临场不慌', '愿才思敏捷，一举夺魁']
-  },
-  {
-    id: 'love', icon: '❤️', name: '姻缘', guide: '愿良缘天成，两情相悦',
-    blessings: ['愿良缘天成，两情相悦', '愿桃花朵开，姻缘早至', '愿有情人终成眷属', '愿心心相印，白首不离']
-  },
-  {
-    id: 'health', icon: '🏥', name: '健康', guide: '愿身体康健，平安顺遂',
-    blessings: ['愿身强体健，百病不侵', '愿神清气爽，精力充沛', '愿平安顺遂，无灾无难', '愿身心康泰，福寿绵长']
-  },
-  {
-    id: 'travel', icon: '✈️', name: '出行', guide: '愿一路顺风，出入平安',
-    blessings: ['愿一路顺风，出入平安', '愿旅途愉快，贵人相助', '愿行千里路，处处逢源', '愿高高兴兴出门，平平安安回家']
-  },
-  {
-    id: 'home', icon: '🏠', name: '家宅', guide: '愿家宅安宁，和和美美',
-    blessings: ['愿家宅安宁，和和美美', '愿阖家欢乐，福气盈门', '愿家运昌隆，人丁兴旺', '愿满堂金玉，四季平安']
-  }
-]
-
 // ── 财神历·神诞（民俗常见农历日期；仅静态展示 + 收藏，不做倒计时/提醒）──
 export interface ShendanEntry {
   id: string

@@ -1,7 +1,7 @@
 // cloud/deploy.cjs
 // 打包 AGC 云函数 ZIP（每个函数：复制 shared/ + 安装依赖 + 打 zip）。
 // 用法：node cloud/deploy.cjs [func-name...]
-//   node cloud/deploy.cjs                      # 打包全部 3 个函数
+//   node cloud/deploy.cjs                      # 打包全部 4 个函数
 //   node cloud/deploy.cjs update-prayer-count  # 只打包指定函数
 // 产物：cloud/<func>/<func>.zip，上传到 AGC 控制台云函数。
 // 注意：agc-credential.json 需手动放置到 cloud/ 根目录（API Client 凭证，见 README）。
@@ -14,7 +14,7 @@ const AdmZip = require('adm-zip');
 
 const CLOUD_DIR = __dirname;
 const SHARED_DIR = path.join(CLOUD_DIR, 'shared');
-const FUNCTIONS = ['update-prayer-count', 'get-leaderboard', 'wish-wall'];
+const FUNCTIONS = ['update-prayer-count', 'get-leaderboard', 'wish-wall', 'game-record-backup'];
 
 /** 递归收集目录下所有文件，返回正斜杠相对路径 */
 function collectFiles(rootDir) {

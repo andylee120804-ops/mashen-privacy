@@ -1,8 +1,9 @@
 // entry/src/main/ets/viewmodels/EnrichViewModel.ets
 import {
-  CheckinState, GameRecord, Achievement, BadgeDef, BADGE_DEFS, AlmanacData, ALMANAC_TABLE, CHECKIN_TILES
+  CheckinState, GameRecord, GameResult, Achievement, BadgeDef, BADGE_DEFS, AlmanacData, ALMANAC_TABLE, CHECKIN_TILES
 } from '../model/EnrichTypes'
 import { PrayerViewModel } from './PrayerViewModel'
+import { CloudService } from '../service/CloudService'
 import { preferences } from '@kit.ArkData'
 
 /** 胜率统计 */
@@ -27,11 +28,18 @@ const KEY_TOTAL_KOWTOW = 'totalKowtow'
 const KEY_BOWED_DEITIES = 'bowedDeities'
 const KEY_WAS_TOP_DAILY = 'wasTopDaily'
 const KEY_WISH_FULFILLED_COUNT = 'wishFulfilledCount'
+const KEY_LAST_BACKUP_AT = 'lastGameRecordBackupAt'
+/** 记一笔/改备注后等待多少毫秒再推送备份（防抖，避免连记多笔时频繁请求） */
+const BACKUP_DEBOUNCE_MS = 2000
 
 @Observed
 export class EnrichViewModel {
   checkin: CheckinState = { lastDate: '', streak: 0, totalIncense: 0 }
   gameRecords: GameRecord[] = []
+  /** 牌局记录变更代次：每次记一笔 +1。UI v1 下外层 ForEach 同 key 子节点不会刷新
+   *  嵌套数据（当天连记多笔明细停在旧行数），明细页把本值混入 ForEach key 强制重建，
+   *  与 EntryConfigVM rev / CustomizePage renderNonce 同思路。 */
+  gameRecordsRev: number = 0
   achievements: Achievement[] = BADGE_DEFS.map((b: BadgeDef): Achievement => {
     return {
       badgeId: b.badgeId,
@@ -48,7 +56,12 @@ export class EnrichViewModel {
   bowedDeities: Set<number> = new Set()
   wasTopDaily: boolean = false
   wishFulfilledCount: number = 0
+  /** 最近一次成功云备份的时间（ISO 字符串，空=从未备份）。UI 经 AppStorage 'lastGameRecordBackupAt' 读取 */
+  lastBackupAt: string = ''
+  /** 最近一次新解锁的徽章 ID（非空时 AchievementGrid 播放解锁动画后清空） */
+  lastUnlockedBadgeId: string = ''
   private dataPrefs: preferences.Preferences | null = null
+  private backupTimer: number = -1
 
   async initialize(context: Context): Promise<void> {
     this.dataPrefs = await preferences.getPreferences(context, PREF_NAME)
@@ -97,16 +110,28 @@ export class EnrichViewModel {
     return this.gameRecords.find(r => r.date === today)
   }
 
-  addGameResult(result: '+' | '·', magnitude: number, deityId: number, kowtowCount: number): void {
+  addGameResult(result: '+' | '-' | '·', magnitude: number, deityId: number, kowtowCount: number): void {
     const today = this.getTodayStr()
-    let record = this.gameRecords.find(r => r.date === today)
-    if (!record) {
-      record = { date: today, deityId, kowtowCount, games: [], note: '' }
-      this.gameRecords.unshift(record)
+    const newGame: GameResult = { result: result, magnitude: magnitude }
+    const existingIdx: number = this.gameRecords.findIndex(r => r.date === today)
+    if (existingIdx >= 0) {
+      const existing: GameRecord = this.gameRecords[existingIdx]
+      const updatedGames: GameResult[] = [...existing.games, newGame]
+      this.gameRecords = [
+        ...this.gameRecords.slice(0, existingIdx),
+        { date: today, deityId: existing.deityId, kowtowCount: existing.kowtowCount, games: updatedGames, note: existing.note },
+        ...this.gameRecords.slice(existingIdx + 1)
+      ]
+    } else {
+      this.gameRecords = [
+        { date: today, deityId: deityId, kowtowCount: kowtowCount, games: [newGame], note: '' },
+        ...this.gameRecords
+      ]
     }
-    record.games.push({ result, magnitude })
     this.persistGameRecords()
+    this.gameRecordsRev++
     this.refreshAchievements()
+    this.queueBackup()
   }
 
   updateGameNote(date: string, note: string): void {
@@ -114,13 +139,90 @@ export class EnrichViewModel {
     if (record) {
       record.note = note
       this.persistGameRecords()
+      this.queueBackup()
     }
   }
 
+  /** 记一笔/改备注后触发云备份：防抖 2s 合并多次写入为一次全量推送（幂等 upsert，重复推送无害） */
+  queueBackup(): void {
+    if (this.backupTimer !== -1) {
+      clearTimeout(this.backupTimer)
+    }
+    this.backupTimer = setTimeout(() => {
+      this.backupTimer = -1
+      this.flushBackup()
+    }, BACKUP_DEBOUNCE_MS)
+  }
+
+  /** 全量推送本地牌局记录到云端；成功后记录最近备份时间（写入 AppStorage 供 UI 刷新） */
+  async flushBackup(): Promise<void> {
+    const uid: string = AppStorage.get<string>('deviceUserId') || ''
+    if (!uid || this.gameRecords.length === 0) {
+      return
+    }
+    try {
+      const ok: boolean = await CloudService.pushGameRecordBackup(this.gameRecords)
+      if (ok) {
+        this.lastBackupAt = new Date().toISOString()
+        await this.persistBackupTime()
+      }
+    } catch (err) {
+      console.error('[EnrichViewModel] flushBackup failed:', JSON.stringify(err))
+    }
+  }
+
+  /**
+   * 启动云端同步（EntryAbility 在 deviceUserId 解析后调用）：
+   * 拉取云端记录 → 把云端有、本地缺的日期合并进本地（防换机/重装/清缓存丢数据）→
+   * 本地有记录则全量推回，使两端收敛一致。幂等，无记录或离线时安全跳过。
+   */
+  async startCloudSync(): Promise<void> {
+    const uid: string = AppStorage.get<string>('deviceUserId') || ''
+    if (!uid) {
+      return
+    }
+    try {
+      const remote: GameRecord[] | null = await CloudService.fetchGameRecordBackup()
+      if (remote === null) {
+        console.warn('[EnrichViewModel] startCloudSync: 云端拉取失败，跳过合并（保留本地）')
+        return
+      }
+      // 合并云端有、本地缺的日期（记录是追加式的，本地更全；云端缺的由全量推回补齐）
+      const localDates: string[] = this.gameRecords.map((r: GameRecord) => r.date)
+      const missing: GameRecord[] = remote.filter((r: GameRecord) => localDates.indexOf(r.date) === -1)
+      if (missing.length > 0) {
+        this.gameRecords = [...missing, ...this.gameRecords].sort((a: GameRecord, b: GameRecord) => {
+          return a.date < b.date ? 1 : -1
+        })
+        await this.persistGameRecords()
+        this.gameRecordsRev++
+      }
+      // 本地有记录则全量推回（幂等 upsert），保证云端与本地一致
+      if (this.gameRecords.length > 0) {
+        await this.flushBackup()
+      }
+    } catch (err) {
+      console.error('[EnrichViewModel] startCloudSync failed:', JSON.stringify(err))
+    }
+  }
+
+  /** 把最近备份时间写入偏好并同步到 AppStorage（@StorageLink 据此刷新状态行） */
+  private async persistBackupTime(): Promise<void> {
+    if (!this.dataPrefs) return
+    await this.dataPrefs.put(KEY_LAST_BACKUP_AT, this.lastBackupAt)
+    await this.dataPrefs.flush()
+    AppStorage.setOrCreate<string>('lastGameRecordBackupAt', this.lastBackupAt)
+  }
+
   getWinRate(): WinRate {
+    return this.getWinRateInRange('')
+  }
+
+  getWinRateInRange(sinceDate: string): WinRate {
     let wins = 0
     let total = 0
     for (const r of this.gameRecords) {
+      if (sinceDate && r.date < sinceDate) continue
       for (const g of r.games) {
         total++
         if (g.result === '+') wins++
@@ -132,6 +234,35 @@ export class EnrichViewModel {
       rate: total > 0 ? Math.round(wins / total * 100) : 0
     }
     return stats
+  }
+
+  /** 计算指定范围内的净盈亏（赢+幅度 - 输幅度） */
+  getNetResultInRange(sinceDate: string): number {
+    let net = 0
+    for (const r of this.gameRecords) {
+      if (sinceDate && r.date < sinceDate) continue
+      for (const g of r.games) {
+        if (g.result === '+') {
+          net += g.magnitude
+        } else if (g.result === '-') {
+          net -= g.magnitude
+        }
+        // '·' 平不计入
+      }
+    }
+    return net
+  }
+
+  /** 获取指定范围内的所有 GameResult */
+  getGamesInRange(sinceDate: string): GameResult[] {
+    const results: GameResult[] = []
+    for (const r of this.gameRecords) {
+      if (sinceDate && r.date < sinceDate) continue
+      for (const g of r.games) {
+        results.push(g)
+      }
+    }
+    return results
   }
 
   getBestDeity(): string {
@@ -186,6 +317,9 @@ export class EnrichViewModel {
     for (let i = 0; i < this.achievements.length; i++) {
       const a = this.achievements[i]
       if (!a.unlocked && checks[a.badgeId]) {
+        this.lastUnlockedBadgeId = a.badgeId
+        // 写入 AppStorage 供全局监听（如 MainTabs 显示 Toast）
+        AppStorage.setOrCreate<string>('newlyUnlockedBadgeId', a.badgeId)
         this.achievements[i] = {
           badgeId: a.badgeId,
           name: a.name,
@@ -305,6 +439,9 @@ export class EnrichViewModel {
 
       this.wasTopDaily = await this.dataPrefs.get(KEY_WAS_TOP_DAILY, false) as boolean
       this.wishFulfilledCount = await this.dataPrefs.get(KEY_WISH_FULFILLED_COUNT, 0) as number
+      this.lastBackupAt = await this.dataPrefs.get(KEY_LAST_BACKUP_AT, '') as string
+      // 把最近备份时间同步到 AppStorage，供 GameRecordPage 状态行经 @StorageLink 读取
+      AppStorage.setOrCreate<string>('lastGameRecordBackupAt', this.lastBackupAt)
     } catch (err) {
       console.error('[EnrichViewModel] Failed to load prefs:', JSON.stringify(err))
     }

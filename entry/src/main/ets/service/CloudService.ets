@@ -6,7 +6,7 @@
 // 注意：ArkTS 不允许在 static 方法中使用 this（arkts-no-standalone-this），
 // 故 getUserId/getNickname/parseEnvelope 为模块级函数，static 方法直接调用。
 import { cloudFunction } from '@kit.CloudFoundationKit'
-import { LeaderboardEntry, LeaderboardType, Wish } from '../model/EnrichTypes'
+import { LeaderboardEntry, LeaderboardType, Wish, GameRecord } from '../model/EnrichTypes'
 
 /** 云函数统一返回信封 */
 interface CloudEnvelope {
@@ -119,26 +119,24 @@ export class CloudService {
 
   /** 拉取心愿墙列表 */
   static async getWishes(): Promise<Wish[]> {
-    try {
-      const result = await cloudFunction.call({
-        name: 'wish-wall',
-        data: {
-          action: 'list',
-          __uid: getUserId()
-        }
-      })
-      const env: CloudEnvelope | null = parseEnvelope(result.result)
-      if (env !== null && env.code === 0 && env.data !== null) {
-        const arr: Object = env.data
-        if (Array.isArray(arr)) {
-          return arr as Wish[]
-        }
+    const result = await cloudFunction.call({
+      name: 'wish-wall',
+      data: {
+        action: 'list',
+        __uid: getUserId()
       }
-      return []
-    } catch (err) {
-      console.error('[CloudService] getWishes failed:', JSON.stringify(err))
-      return []
+    })
+    const env: CloudEnvelope | null = parseEnvelope(result.result)
+    if (env === null) {
+      throw new Error('wish-wall response format error')
     }
+    if (env.code !== 0) {
+      throw new Error('wish-wall failed: ' + env.message)
+    }
+    if (env.data !== null && Array.isArray(env.data)) {
+      return env.data as Wish[]
+    }
+    return []
   }
 
   /** 发布心愿 */
@@ -177,6 +175,77 @@ export class CloudService {
       return env !== null && env.code === 0
     } catch (err) {
       console.error('[CloudService] fulfillWish failed:', JSON.stringify(err))
+      return false
+    }
+  }
+
+  /** 删除心愿（仅发布者可删）。返回空字符串=成功，否则返回给用户看的错误信息 */
+  static async deleteWish(wishId: string): Promise<string> {
+    try {
+      const result = await cloudFunction.call({
+        name: 'wish-wall',
+        data: {
+          action: 'delete',
+          wishId: wishId,
+          __uid: getUserId()
+        }
+      })
+      const env: CloudEnvelope | null = parseEnvelope(result.result)
+      if (env === null) {
+        return '删除失败：服务响应格式异常'
+      }
+      if (env.code !== 0) {
+        console.error('[CloudService] deleteWish cloud error: code=' + env.code + ' msg=' + env.message)
+        // 透出服务端真实原因（403 非本人 / 404 不存在 / 500 云端错误等），而非笼统提示网络
+        return '删除失败：' + (env.message || ('云端错误 code ' + env.code))
+      }
+      return ''
+    } catch (err) {
+      console.error('[CloudService] deleteWish failed:', JSON.stringify(err))
+      return '删除失败，请检查网络后重试'
+    }
+  }
+
+  /** 拉取本人云端牌局记录备份。成功返回记录数组（可为空），失败返回 null（便于区分空数据与错误） */
+  static async fetchGameRecordBackup(): Promise<GameRecord[] | null> {
+    try {
+      const result = await cloudFunction.call({
+        name: 'game-record-backup',
+        data: {
+          action: 'pull',
+          __uid: getUserId()
+        }
+      })
+      const env: CloudEnvelope | null = parseEnvelope(result.result)
+      if (env === null || env.code !== 0 || env.data === null) {
+        console.error('[CloudService] fetchGameRecordBackup failed: ' + (env ? env.message : 'bad format'))
+        return null
+      }
+      if (!Array.isArray(env.data)) {
+        return null
+      }
+      return env.data as GameRecord[]
+    } catch (err) {
+      console.error('[CloudService] fetchGameRecordBackup failed:', JSON.stringify(err))
+      return null
+    }
+  }
+
+  /** 全量推送牌局记录到云端备份（幂等 upsert，重复推送无害）。成功返回 true */
+  static async pushGameRecordBackup(records: GameRecord[]): Promise<boolean> {
+    try {
+      const result = await cloudFunction.call({
+        name: 'game-record-backup',
+        data: {
+          action: 'push',
+          records: records,
+          __uid: getUserId()
+        }
+      })
+      const env: CloudEnvelope | null = parseEnvelope(result.result)
+      return env !== null && env.code === 0
+    } catch (err) {
+      console.error('[CloudService] pushGameRecordBackup failed:', JSON.stringify(err))
       return false
     }
   }

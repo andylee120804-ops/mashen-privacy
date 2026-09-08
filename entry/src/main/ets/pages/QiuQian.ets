@@ -1,10 +1,13 @@
 // entry/src/main/ets/pages/QiuQian.ets
 // 求签 tab：摇晃手机求签（每次独立随机抽签，36 签真随机）。
 // 动画模拟「抱机磕头 + 摇晃出签」：三拜 → 摇签筒 → 签支弹出 → 签文翻牌揭晓。
-// 仅靠摇晃手机触发（无按钮）；揭签后可解签 / 去祈福 / 再求一签。
-import { SignEntry, SignLevel, SIGN_TABLE } from '../model/CultureContent'
+// 仅靠摇晃手机触发（无按钮）。揭签自动记入签录（每日最多求 3 签，跨天重置）；
+// 右上角「📜 签录」可回看历史签（点行看完整签文）；另有解签 / 去祈福 / 再求一签。
+import { SignEntry, SignLevel, SIGN_TABLE, QiuRecord } from '../model/CultureContent'
 import { PrayerViewModel } from '../viewmodels/PrayerViewModel'
+import { QiuQianViewModel, MAX_DAILY_QIU } from '../viewmodels/QiuQianViewModel'
 import { ParticleCanvas, ParticleType } from '../components/ParticleCanvas'
+import { PageBack } from '../components/PageBack'
 import { pasteboard } from '@kit.BasicServicesKit'
 import { router } from '@kit.ArkUI'
 import { sensor, vibrator } from '@kit.SensorServiceKit'
@@ -36,7 +39,7 @@ const BOW_GAP_MS = 220            // 拜与拜之间停顿
 const SHAKE_STEPS = 10            // 摇晃摆动次数
 const SHAKE_STEP_MS = 90          // 每次摆动间隔
 const SHAKE_ANGLE = 11            // 摆动幅度（°）
-const LAUNCH_RISE = -185          // 签支弹出上升距离
+const LAUNCH_RISE = -160          // 签支弹出上升距离（终点签底悬在素材冠顶上方）
 const LAUNCH_MS = 820             // 弹出阶段时长
 // ── 摇晃检测参数（加速度计）──
 // 用「合加速度偏离重力 + 迟滞翻转计数」检测：摇晃一个来回 = 合加速度在
@@ -51,20 +54,24 @@ const SHAKE_COOLDOWN_MS = 2000    // 触发后冷却，防连击
 const FLIP_VIBRATE_MS = 22
 const FLIP_VIBRATE_GAP_MS = 120
 
-const STICK_COUNT = 14
-
-/** 签支束扇开角度：从负到正均匀分布 */
-function buildStickAngles(): number[] {
-  const angles: number[] = []
-  for (let i = 0; i < STICK_COUNT; i++) {
-    angles.push((i - (STICK_COUNT - 1) / 2) * 2.6)
-  }
-  return angles
-}
+// ── 舞台素材 ──
+// 签筒画面直接用用户提供的参考图素材（props/qiu_art.png，透明底，272×483），
+// 动画（俯身/摇摆/出签）在整图上做，不再程序化重绘签筒。
+const QIU_ART_W = 169             // 素材显示宽（vp，按 272:483 等比）
+const QIU_ART_H = 300             // 素材显示高（vp）
+const WIGGLE_AMP = 2.2            // 摇筒时整图附加的小幅摆动（叠在筒身摇摆上）
+// 弹出签素材：直接从求签素材裁出的「筒内同款」单签（13×100 原图，
+// 红漆身 #ff0000 + 金竖高光，scripts/crop-qiu-stick.py 生成）
+const QIU_STICK_IMG_W = 10        // 弹出签显示宽（vp，13:100 等比）
+const QIU_STICK_IMG_H = 76        // 弹出签显示高（vp）
+const LIST_OPEN_GRACE_MS = 350    // 签录打开后忽略遮罩点击的窗口（防同一点击立即误关）
 
 @Component
 export struct QiuQianPage {
+  /** 独立模式（EntryShell 从「我的」进入）：返回键并入大标题行；Tab 模式不带 */
+  @Prop standalone: boolean = false
   @StorageLink('viewModel') viewModel: PrayerViewModel = new PrayerViewModel()
+  @StorageLink('qiuVM') qiuVM: QiuQianViewModel = new QiuQianViewModel()
   /** 当前激活入口 id（MainTabs onChange / EntryShell aboutToAppear 写入），仅在本入口激活时响应摇晃 */
   @StorageLink('activeEntryId') @Watch('onSensorGateChanged') activeEntryId: string = ''
   /** App 前后台状态（EntryAbility onForeground/onBackground 写入）：
@@ -74,15 +81,21 @@ export struct QiuQianPage {
   @State phase: QiuPhase = QiuPhase.IDLE
   @State bowAngle: number = 0
   @State shakeAngle: number = 0
+  @State fanSway: number = 0     // 摇筒时整图附加的小幅摆动（与筒身摇摆叠加）
   @State bowIndex: number = 0
   @State stickRiseY: number = 0
   @State stageOpacity: number = 1
   @State cardFlipAngle: number = 90
   @State cardOpacity: number = 0
-  @State showSignDetail: boolean = false
-  private stickAngles: number[] = buildStickAngles()
+  @State showQiuList: boolean = false      // 签录覆层开关
+  @State showDetail: boolean = false       // 解签详情覆层开关（当前签 / 记录行共用）
+  @State detail: SignEntry = SIGN_TABLE[0] // 当前展示的签快照（showDetail=true 时有效）
+  @State qiuRecords: QiuRecord[] = []      // 签录快照（新→旧）
+  @State todayUsed: number = 0             // 今日已求次数（0..3）
+  @State clearArmed: boolean = false       // 清空签录二次确认
   private timers: number[] = []
   private shakeTimerId: number = -1
+  private swayPhase: number = 0   // 摆动相位推进器（随摇筒 step 递增）
   private sensorOn: boolean = false
   private leaving: boolean = false
   // 摇晃检测状态（迟滞翻转计数）
@@ -91,10 +104,13 @@ export struct QiuQianPage {
   private flipTimes: number[] = []
   private drawCooldownUntil: number = 0
   private lastFlipVibrateMs: number = 0
+  private qiuListOpenedAt: number = 0    // 签录打开时刻（防开窗点击误关）
+  private detailOpenedAt: number = 0     // 详情打开时刻（同上）
 
   aboutToAppear(): void {
     // 传感器订阅由 syncSensorState 统一门控（前台 + 求签 tab 激活才占用）
     this.syncSensorState()
+    this.syncFromVM()
   }
 
   aboutToDisappear(): void {
@@ -205,10 +221,21 @@ export struct QiuQianPage {
 
   // ── 求签动画序列 ──
 
-  /** 开始求签（摇晃触发） */
+  /** 开始求签（摇晃触发）：先过每日 3 签额度，出签即消费一次 */
   private startDraw(): void {
     if (this.phase !== QiuPhase.IDLE || this.leaving) return
+    if (!this.qiuVM.canDraw()) {
+      // 今日额度已满：提示后留在待求签态（不进入动画）
+      this.vibrate(80)
+      this.todayUsed = MAX_DAILY_QIU
+      this.toast('今日已求满 3 签 · 明日再来 🙏')
+      return
+    }
     this.drawSign()
+    this.qiuVM.consumeDraw().catch((err: Object) => {
+      console.error('[QiuQian] consumeDraw failed:', JSON.stringify(err))
+    })
+    this.todayUsed = this.qiuVM.usedToday()
     this.phase = QiuPhase.KOWTOW
     this.bowIndex = 0
     this.performBow(0)
@@ -250,10 +277,14 @@ export struct QiuQianPage {
         clearInterval(this.shakeTimerId)
         this.shakeTimerId = -1
         this.shakeAngle = 0
+        this.fanSway = 0
         this.beginLaunch()
         return
       }
       this.shakeAngle = (step % 2 === 0) ? -SHAKE_ANGLE : SHAKE_ANGLE
+      // 整图附加摆动：与筒身异相的正弦波（黏性晃动，出签前收拢回正）
+      this.swayPhase += 1
+      this.fanSway = Math.round(Math.sin(this.swayPhase * 0.9) * WIGGLE_AMP * 10) / 10
       if (step % 2 === 1) {
         this.vibrate(40)
       }
@@ -274,13 +305,17 @@ export struct QiuQianPage {
     })
   }
 
-  /** 揭晓签文：签筒淡出、签纸翻牌入 */
+  /** 揭晓签文：签筒淡出、签纸翻牌入；揭晓即自动记入签录 */
   private showReveal(): void {
     if (this.leaving) return
     this.phase = QiuPhase.REVEAL
     this.stageOpacity = 0
     this.cardOpacity = 1
     this.cardFlipAngle = 0
+    this.qiuVM.addRecord(this.sign).catch((err: Object) => {
+      console.error('[QiuQian] addRecord failed:', JSON.stringify(err))
+    })
+    this.qiuRecords = this.qiuVM.records
   }
 
   /** 跳过动画直接看签 */
@@ -288,6 +323,7 @@ export struct QiuQianPage {
     if (this.leaving || this.phase === QiuPhase.REVEAL) return
     this.clearAllTimers()
     this.shakeAngle = 0
+    this.fanSway = 0
     this.bowAngle = 0
     this.showReveal()
   }
@@ -296,27 +332,32 @@ export struct QiuQianPage {
   private resetDraw(): void {
     if (this.leaving) return
     this.clearAllTimers()
-    this.showSignDetail = false
+    this.showQiuList = false
+    this.showDetail = false
+    this.clearArmed = false
     this.phase = QiuPhase.IDLE
     this.cardOpacity = 0
     this.cardFlipAngle = 90
     this.stageOpacity = 1
     this.stickRiseY = 0
     this.shakeAngle = 0
+    this.fanSway = 0
+    this.swayPhase = 0
     this.bowAngle = 0
   }
 
   /** 去祈福：进入祈福流程（NameCard → PrayerCard） */
   private goPray(): void {
-    this.showSignDetail = false
+    this.showQiuList = false
+    this.showDetail = false
     this.viewModel.startPrayer()
     setTimeout((): void => {
       this.getUIContext().getRouter().pushUrl({ url: 'pages/NameCard' }, router.RouterMode.Standard)
     }, 0)
   }
 
-  private copySignText(): void {
-    const text = `【${this.sign.level}】${this.sign.title}\n${this.sign.poem}\n解签：${this.sign.interpretation}\n建议：${this.sign.advice}\n——来自麻神祈福`
+  private copySignText(sign: SignEntry): void {
+    const text = `【${sign.level}】${sign.title}\n${sign.poem}\n解签：${sign.interpretation}\n建议：${sign.advice}\n——来自麻神祈福`
     try {
       const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text)
       pasteboard.getSystemPasteboard().setData(data)
@@ -389,19 +430,24 @@ export struct QiuQianPage {
         isActive: this.phase === QiuPhase.REVEAL
       })
 
-      // 顶部标题
-      Column() {
+      // 顶部标题（与电子木鱼/运势黄历一致的标题位：左上角、状态栏下；
+      // 独立模式返回键并入同行且标题居中，签录胶囊保持在行尾；Tab 模式标题左对齐）
+      Row() {
+        if (this.standalone) {
+          PageBack()
+        }
         Text('🎋 求签问运')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor('#f9ca24')
-        Text('摇晃手机出签 · 心诚则灵')
-          .fontSize(11)
-          .fontColor('rgba(253, 246, 227, 0.5)')
-          .margin({ top: 4 })
+          .layoutWeight(1)
+          .textAlign(this.standalone ? TextAlign.Center : TextAlign.Start)
+        this.QiuHistoryPill()
       }
-      .position({ x: '50%', y: 58 })
-      .translate({ x: '-50%', y: '0' })
+      .width('100%')
+      .position({ x: 0, y: 0 })
+      .padding({ left: this.standalone ? 6 : 20, right: 14, top: 44, bottom: 8 })
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
 
       // 主舞台：签筒 / 签文
       Column() {
@@ -424,9 +470,9 @@ export struct QiuQianPage {
             .fontSize(13)
             .fontColor('rgba(249, 202, 36, 0.75)')
             .margin({ top: 8 })
-          Text('摇得越诚心 · 签文越灵验')
+          Text(this.idleSubText())
             .fontSize(11)
-            .fontColor('rgba(253, 246, 227, 0.5)')
+            .fontColor(this.todayUsed >= MAX_DAILY_QIU ? 'rgba(249, 202, 36, 0.8)' : 'rgba(253, 246, 227, 0.5)')
             .margin({ top: 6 })
         } else if (this.phase === QiuPhase.REVEAL) {
           Row() {
@@ -439,7 +485,7 @@ export struct QiuQianPage {
               .borderRadius(22)
               .layoutWeight(1)
               .padding({ top: 11, bottom: 11 })
-              .onClick((): void => { this.showSignDetail = true })
+              .onClick((): void => { this.openDetail(this.sign) })
             Button('🎋 再求一签')
               .fontSize(14)
               .fontWeight(FontWeight.Bold)
@@ -475,9 +521,14 @@ export struct QiuQianPage {
       .position({ x: '50%', y: '86%' })
       .translate({ x: '-50%', y: '-50%' })
 
-      // 解签详情覆层（纯页面覆层，收下确定性关闭）
-      if (this.showSignDetail) {
-        this.SignDetailOverlay()
+      // 签录覆层（记录列表）
+      if (this.showQiuList) {
+        this.QiuRecordListOverlay()
+      }
+
+      // 解签详情覆层（当前签 / 签录记录行共用；✕ 或点遮罩关闭）
+      if (this.showDetail) {
+        this.SignDetailOverlay(this.detail)
       }
     }
     .width('100%')
@@ -504,13 +555,13 @@ export struct QiuQianPage {
         .animation({ duration: BOW_HOLD_MS, curve: Curve.EaseInOut })
       }
 
-      // 弹出签支（仅 LAUNCH 阶段渲染，从签筒中升起）
+      // 弹出签支（仅 LAUNCH 阶段渲染，从签筒中升起；Friction 带回弹下落感）
       if (this.phase === QiuPhase.LAUNCH) {
         Column() {
-          this.SignStick(1, 0)
+          this.LaunchStick()
         }
         .translate({ y: this.stickRiseY })
-        .animation({ duration: LAUNCH_MS - 60, curve: Curve.EaseOut })
+        .animation({ duration: LAUNCH_MS - 60, curve: Curve.Friction })
       }
 
       // 签纸（REVEAL 阶段：翻牌入场）
@@ -522,133 +573,39 @@ export struct QiuQianPage {
     .height(360)
   }
 
-  /** 签筒 + 签支束（红漆圆柱筒身 + 金口 + 流苏；红漆竹签扇开） */
+  /** 求签舞台画面：直接使用用户提供的签筒素材（props/qiu_art.png，透明底）。
+   *  动画为整图俯身 / 摇摆 / 附加正弦微摆；出签的签支由 SignStick 程序化绘制 */
   @Builder
   TubeView() {
     Column() {
-      // 签支束（扇开，底端沉入筒口）
-      Row() {
-        ForEach(this.stickAngles, (angle: number, index: number) => {
-          this.SignStick(index, angle)
-        }, (angle: number, index: number): string => `stick_${index}`)
-      }
-      .height(92)
-      .alignItems(VerticalAlign.Bottom)
-      .justifyContent(FlexAlign.Center)
-      .margin({ bottom: -24 })
-
-      // 筒身：三段收窄成圆底，左右暗中间亮模拟圆柱圆润
-      Stack() {
-        Column()
-          .width(146)
-          .height(46)
-          .margin({ top: 12 })
-          .linearGradient({
-            direction: GradientDirection.Right,
-            colors: [['#541d17', 0], ['#9a3628', 0.3], ['#cf5438', 0.5], ['#9a3628', 0.7], ['#541d17', 1]]
-          })
-        Column()
-          .width(138)
-          .height(44)
-          .margin({ top: 50 })
-          .linearGradient({
-            direction: GradientDirection.Right,
-            colors: [['#541d17', 0], ['#9a3628', 0.3], ['#cf5438', 0.5], ['#9a3628', 0.7], ['#541d17', 1]]
-          })
-        Column()
-          .width(128)
-          .height(52)
-          .margin({ top: 86 })
-          .borderRadius({ bottomLeft: 28, bottomRight: 28 })
-          .linearGradient({
-            direction: GradientDirection.Right,
-            colors: [['#541d17', 0], ['#9a3628', 0.3], ['#cf5438', 0.5], ['#9a3628', 0.7], ['#541d17', 1]]
-          })
-        // 筒身金饰带
-        Column()
-          .width(138)
-          .height(5)
-          .margin({ top: 102 })
-          .backgroundColor('#f9ca24')
-          .opacity(0.85)
-        // 筒口内沿（深色口，签支插在里面）
-        Column()
-          .width(126)
-          .height(16)
-          .margin({ top: 16 })
-          .backgroundColor('#2a0e0a')
-          .borderRadius(7)
-        // 筒口金环
-        Column()
-          .width(152)
-          .height(16)
-          .borderRadius({ topLeft: 8, topRight: 8 })
-          .linearGradient({
-            direction: GradientDirection.Right,
-            colors: [['#6e521a', 0], ['#f6d578', 0.5], ['#6e521a', 1]]
-          })
-        // 筒身金字
-        Text('签')
-          .fontSize(40)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#f9ca24')
-          .position({ x: 56, y: 40 })
-        Text('诚心求签')
-          .fontSize(10)
-          .fontColor('rgba(249, 202, 36, 0.8)')
-          .position({ x: 53, y: 88 })
-        // 流苏（垂在筒身右下）
-        Column() {
-          Column()
-            .width(10)
-            .height(12)
-            .backgroundColor('#f9ca24')
-            .borderRadius(5)
-          Row() {
-            ForEach([0, 1, 2, 3], (i: number): void => {
-              Column()
-                .width(2.4)
-                .height(22 + (i % 2) * 6)
-                .margin({ left: i === 0 ? 0 : 2 })
-                .backgroundColor('#d1452f')
-                .borderRadius(1.2)
-            }, (i: number): string => `tassel_${i}`)
-          }
-        }
-        .position({ x: 124, y: 96 })
-      }
-      .width(152)
-      .height(138)
-      .shadow({ radius: 26, color: 'rgba(0, 0, 0, 0.55)', offsetY: 8 })
+      Image($rawfile('props/qiu_art.png'))
+        .width(QIU_ART_W)
+        .height(QIU_ART_H)
+        .objectFit(ImageFit.Fill)
+        .interpolation(ImageInterpolation.High)
+        .shadow({ radius: 30, color: 'rgba(0, 0, 0, 0.55)', offsetY: 10 })
     }
-    .alignItems(HorizontalAlign.Center)
+    .width(QIU_ART_W)
+    .height(QIU_ART_H)
+    // 摇筒时整图附加小幅摆动（叠加于 StageView 的摇摆之上）；静止/出签归 0
+    .rotate({ z: 1, centerX: '50%', centerY: '100%', angle: this.fanSway })
+    .animation({ duration: SHAKE_STEP_MS, curve: Curve.Smooth })
   }
 
-  /** 单支签：红漆半圆签头 + 竹身渐变（替代原"火柴"造型：金圆头 + 细签身）
-   *  angle 为扇开角度（LAUNCH 弹出时传 0 不旋转），旋转轴在签根，让扇面从筒口张开 */
+  /** 弹出签支（LAUNCH）：直接使用从求签素材裁出的筒内同款签原图
+   *  （props/qiu_stick_pick.png，13×100，红漆身+金竖高光），非程序化重绘 */
   @Builder
-  SignStick(index: number, angle: number) {
+  LaunchStick() {
     Column() {
-      // 红漆签头（半圆顶）
-      Column()
-        .width(9)
-        .height(15)
-        .borderRadius({ topLeft: 4.5, topRight: 4.5, bottomLeft: 2, bottomRight: 2 })
-        .linearGradient({
-          direction: GradientDirection.Right,
-          colors: [['#7e2417', 0], ['#d1452f', 0.55], ['#8e2a1d', 1]]
-        })
-      // 竹签身（渐变圆润，长短略异更自然）
-      Column()
-        .width(9)
-        .height(50 + (index % 3) * 6)
-        .borderRadius({ bottomLeft: 3.5, bottomRight: 3.5 })
-        .linearGradient({
-          direction: GradientDirection.Right,
-          colors: [['#cfae72', 0], ['#f6e3b4', 0.5], ['#cfae72', 1]]
-        })
+      Image($rawfile('props/qiu_stick_pick.png'))
+        .width(QIU_STICK_IMG_W)
+        .height(QIU_STICK_IMG_H)
+        .objectFit(ImageFit.Contain)
+        .interpolation(ImageInterpolation.High)
     }
-    .rotate({ z: 1, centerX: '50%', centerY: '100%', angle: angle })
+    .width(QIU_STICK_IMG_W)
+    .height(QIU_STICK_IMG_H)
+    .shadow({ radius: 10, color: 'rgba(255, 190, 60, 0.35)', offsetY: 2 })
   }
 
   /** 签纸卡片：签号/吉凶/签名/签诗，翻牌动画，点击看解签 */
@@ -698,92 +655,89 @@ export struct QiuQianPage {
     .opacity(this.cardOpacity)
     .rotate({ y: 1, angle: this.cardFlipAngle })
     .animation({ duration: 550, curve: Curve.Friction })
-    .onClick((): void => { this.showSignDetail = true })
+    .onClick((): void => { this.openDetail(this.sign) })
   }
 
-  /** 解签详情覆层（点击遮罩或收下即关） */
+  /** 解签详情覆层（当前签 / 签录记录行共用，sign 参数化）。
+   *  签已自动记入签录，无需「收下」；关闭 = 右上角 ✕ 或点遮罩。 */
   @Builder
-  SignDetailOverlay() {
+  SignDetailOverlay(sign: SignEntry) {
     Stack() {
       Column()
         .width('100%')
         .height('100%')
         .backgroundColor('rgba(0, 0, 0, 0.65)')
-        .onClick((): void => { this.showSignDetail = false })
+        .onClick((): void => { this.tryCloseDetail() })
 
       Column() {
         Row() {
-          Text(`第 ${this.sign.id} 签`)
+          Text(`第 ${sign.id} 签`)
             .fontSize(12)
             .fontColor('rgba(253, 246, 227, 0.5)')
           Blank()
-          Text(this.sign.level)
+          Text(sign.level)
             .fontSize(13)
             .fontWeight(FontWeight.Bold)
-            .fontColor(this.getLevelColor(this.sign.level))
+            .fontColor(this.getLevelColor(sign.level))
             .padding({ left: 10, right: 10, top: 3, bottom: 3 })
-            .border({ width: 1, color: this.getLevelColor(this.sign.level), radius: 12 })
+            .border({ width: 1, color: this.getLevelColor(sign.level), radius: 12 })
+          Text('✕')
+            .fontSize(17)
+            .fontColor('rgba(253, 246, 227, 0.8)')
+            .padding({ left: 14 })
+            .onClick((): void => { this.showDetail = false })
         }
         .width('100%')
 
-        Text(this.sign.title)
+        Text(sign.title)
           .fontSize(22)
           .fontWeight(FontWeight.Bold)
           .fontColor('#f9ca24')
           .margin({ top: 16 })
 
-        Text(this.sign.poem)
+        Text(sign.poem)
           .fontSize(16)
           .fontColor('#fdf6e3')
           .fontStyle(FontStyle.Italic)
           .textAlign(TextAlign.Center)
           .margin({ top: 10 })
 
-        Text(`解签：${this.sign.interpretation}`)
+        Text(`解签：${sign.interpretation}`)
           .fontSize(13)
           .fontColor('rgba(253, 246, 227, 0.85)')
           .lineHeight(20)
           .margin({ top: 16 })
 
-        Text(`今日建议：${this.sign.advice}`)
+        Text(`今日建议：${sign.advice}`)
           .fontSize(12)
           .fontColor('rgba(249, 202, 36, 0.8)')
           .lineHeight(19)
           .margin({ top: 10 })
 
         Row() {
-          Button('复制签文')
-            .fontSize(12)
+          Button('📋 复制签文')
+            .fontSize(13)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#fdf6e3')
-            .backgroundColor('rgba(249, 202, 36, 0.15)')
-            .borderRadius(18)
+            .fontColor('#f9ca24')
+            .backgroundColor('rgba(249, 202, 36, 0.12)')
+            .border({ width: 1, color: '#f9ca24' })
+            .borderRadius(20)
             .layoutWeight(1)
-            .padding({ top: 10, bottom: 10 })
-            .onClick((): void => { this.copySignText() })
-          Button('收下')
-            .fontSize(12)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#1a1a0a')
-            .backgroundColor('#f9ca24')
-            .borderRadius(18)
-            .layoutWeight(1)
-            .margin({ left: 10 })
-            .padding({ top: 10, bottom: 10 })
-            .onClick((): void => { this.showSignDetail = false })
-          Button('去祈福')
-            .fontSize(12)
+            .padding({ top: 11, bottom: 11 })
+            .onClick((): void => { this.copySignText(sign) })
+          Button('🙏 去祈福')
+            .fontSize(13)
             .fontWeight(FontWeight.Bold)
             .fontColor('#1a1a0a')
             .backgroundColor('#f9ca24')
-            .borderRadius(18)
+            .borderRadius(20)
             .layoutWeight(1)
             .margin({ left: 10 })
-            .padding({ top: 10, bottom: 10 })
+            .padding({ top: 11, bottom: 11 })
             .onClick((): void => { this.goPray() })
         }
         .width('100%')
-        .margin({ top: 20 })
+        .margin({ top: 22 })
       }
       .width('82%')
       .padding(24)
@@ -793,5 +747,252 @@ export struct QiuQianPage {
     }
     .width('100%')
     .height('100%')
+  }
+
+  /** 签录入口（标题下方小胶囊：📜 签录 + 条数角标） */
+  @Builder
+  QiuHistoryPill() {
+    Row() {
+      Text('📜 签录')
+        .fontSize(13)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#f9ca24')
+      if (this.qiuRecords.length > 0) {
+        Text(`${this.qiuRecords.length}`)
+          .fontSize(10)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#1a1a0a')
+          .backgroundColor('#f9ca24')
+          .borderRadius(8)
+          .padding({ left: 5, right: 5, top: 1, bottom: 1 })
+          .margin({ left: 5 })
+      }
+    }
+    .padding({ left: 13, right: 13, top: 9, bottom: 9 })
+    .backgroundColor('rgba(249, 202, 36, 0.08)')
+    .border({ width: 1, color: 'rgba(249, 202, 36, 0.25)', radius: 15 })
+    .onClick((): void => {
+      this.openList()
+    })
+  }
+
+  /** 签录覆层：今日额度 + 记录列表（自动记录，点行看完整签文；清空需二次确认） */
+  @Builder
+  QiuRecordListOverlay() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0, 0, 0, 0.65)')
+        .onClick((): void => { this.tryCloseList() })
+
+      Column() {
+        Row() {
+          Text('📜 求签记录')
+            .fontSize(15)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#f9ca24')
+          Blank()
+          Text(`今日已求 ${this.todayUsed}/${MAX_DAILY_QIU} 签`)
+            .fontSize(12)
+            .fontColor('rgba(253, 246, 227, 0.6)')
+          Text('✕')
+            .fontSize(17)
+            .fontColor('rgba(253, 246, 227, 0.8)')
+            .padding({ left: 14 })
+            .onClick((): void => {
+              this.showQiuList = false
+              this.clearArmed = false
+            })
+        }
+        .width('100%')
+
+        if (this.qiuRecords.length === 0) {
+          Column() {
+            Text('🍂')
+              .fontSize(30)
+            Text('尚无签录')
+              .fontSize(14)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('rgba(253, 246, 227, 0.7)')
+              .margin({ top: 8 })
+            Text('摇一签即自动记入，每日最多 3 签')
+              .fontSize(11)
+              .fontColor('rgba(253, 246, 227, 0.55)')
+              .margin({ top: 6 })
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+        } else {
+          Scroll() {
+            Column() {
+              ForEach(this.qiuRecords, (rec: QiuRecord) => {
+                this.QiuRecordRow(rec)
+              }, (rec: QiuRecord): string => rec.recId)
+            }
+            .width('100%')
+          }
+          .layoutWeight(1)
+          .scrollBar(BarState.Off)
+          .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+          .margin({ top: 8 })
+
+          Text(this.clearArmed ? '⚠ 再点一次确认清空' : '清空记录')
+            .fontSize(12)
+            .fontColor(this.clearArmed ? '#f0533f' : 'rgba(253, 246, 227, 0.55)')
+            .padding({ top: 10, bottom: 10 })
+            .width('100%')
+            .textAlign(TextAlign.Center)
+            .onClick((): void => { this.onClearTap() })
+        }
+      }
+      .width('88%')
+      .height('76%')
+      .padding({ left: 18, right: 18, top: 18, bottom: 14 })
+      .backgroundColor('#241f12')
+      .border({ width: 1, color: 'rgba(249, 202, 36, 0.35)', radius: 16 })
+      .shadow({ radius: 30, color: 'rgba(0, 0, 0, 0.5)', offsetY: 8 })
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  /** 签录单行：日期时间 + 等级·签名（等级色）+ 签诗摘要，点击看完整签文 */
+  @Builder
+  QiuRecordRow(rec: QiuRecord) {
+    Column() {
+      Row() {
+        Column() {
+          Text(this.fmtDate(rec.ts))
+            .fontSize(13)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('rgba(253, 246, 227, 0.75)')
+          Text(this.fmtClock(rec.ts))
+            .fontSize(10)
+            .fontColor('rgba(253, 246, 227, 0.5)')
+            .margin({ top: 2 })
+        }
+        .alignItems(HorizontalAlign.Start)
+        .width(72)
+
+        Column() {
+          Text(`${rec.sign.level} · ${rec.sign.title}`)
+            .fontSize(14)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.getLevelColor(rec.sign.level))
+          Text(rec.sign.poem)
+            .fontSize(11)
+            .fontColor('rgba(253, 246, 227, 0.5)')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .margin({ top: 3 })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        .margin({ left: 6 })
+
+        Text('›')
+          .fontSize(16)
+          .fontColor('rgba(253, 246, 227, 0.5)')
+          .margin({ left: 6 })
+      }
+      .width('100%')
+      .padding({ top: 10, bottom: 10 })
+      .onClick((): void => { this.openDetail(rec.sign) })
+
+      Divider()
+        .color('rgba(253, 246, 227, 0.07)')
+        .strokeWidth(1)
+    }
+    .width('100%')
+  }
+
+  // ── 签录工具 ──
+
+  /** 打开解签详情（当前签揭晓 / 签录记录行共用入口） */
+  private openDetail(sign: SignEntry): void {
+    this.detail = sign
+    this.detailOpenedAt = Date.now()
+    this.showDetail = true
+  }
+
+  /** 打开签录（记录开启时刻，供遮罩点击保护） */
+  private openList(): void {
+    this.qiuListOpenedAt = Date.now()
+    this.showQiuList = true
+    this.clearArmed = false
+    console.info(`[QiuQian] open qiu list, records=${this.qiuRecords.length}`)
+  }
+
+  /** 关签录（打开后短窗口内的点击可能是开窗动作本身，忽略） */
+  private tryCloseList(): void {
+    if (Date.now() - this.qiuListOpenedAt < LIST_OPEN_GRACE_MS) {
+      return
+    }
+    this.showQiuList = false
+    this.clearArmed = false
+  }
+
+  /** 关详情（同上的开窗保护） */
+  private tryCloseDetail(): void {
+    if (Date.now() - this.detailOpenedAt < LIST_OPEN_GRACE_MS) {
+      return
+    }
+    this.showDetail = false
+  }
+
+  /** 从 VM 同步签录与今日额度快照（本页为唯一写入方，揭晓/清空后自行刷新） */
+  private syncFromVM(): void {
+    this.qiuRecords = this.qiuVM.records
+    this.todayUsed = this.qiuVM.usedToday()
+  }
+
+  private onClearTap(): void {
+    if (this.qiuRecords.length === 0) return
+    if (!this.clearArmed) {
+      this.clearArmed = true
+      this.toast('再点一次确认清空全部签录')
+      this.after(2600, (): void => { this.clearArmed = false })
+      return
+    }
+    this.clearArmed = false
+    this.qiuVM.clearRecords().catch((err: Object) => {
+      console.error('[QiuQian] clearRecords failed:', JSON.stringify(err))
+    })
+    this.qiuRecords = []
+    this.toast('签录已清空')
+  }
+
+  private idleSubText(): string {
+    if (this.todayUsed >= MAX_DAILY_QIU) {
+      return '今日已满 3 签 · 明日再来 🙏'
+    }
+    if (this.todayUsed > 0) {
+      return `今日已求 ${this.todayUsed}/${MAX_DAILY_QIU} 签 · 心诚则灵`
+    }
+    return '摇得越诚心 · 签文越灵验'
+  }
+
+  private toast(msg: string): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: msg })
+    } catch (err) {
+      console.error('[QiuQian] toast failed:', JSON.stringify(err))
+    }
+  }
+
+  private fmtDate(ts: number): string {
+    const d = new Date(ts)
+    return `${this.pad(d.getMonth() + 1)}-${this.pad(d.getDate())}`
+  }
+
+  private fmtClock(ts: number): string {
+    const d = new Date(ts)
+    return `${this.pad(d.getHours())}:${this.pad(d.getMinutes())}`
+  }
+
+  private pad(n: number): string {
+    return n < 10 ? `0${n}` : `${n}`
   }
 }

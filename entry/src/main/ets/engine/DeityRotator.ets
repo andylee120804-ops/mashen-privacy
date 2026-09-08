@@ -10,7 +10,7 @@ export class DeityRotator {
   }
 
   static getTodayDeity(): DeityInfo {
-    const deityId = this.computeDeityId(new Date())
+    const deityId = DeityRotator.computeDeityId(new Date())
     const deity = FIVE_DEITIES.find(d => d.id === deityId)
     if (!deity) {
       return FIVE_DEITIES[0] // fallback to first deity
@@ -23,7 +23,7 @@ export class DeityRotator {
     if (isNaN(d.getTime())) {
       return FIVE_DEITIES[0] // invalid date fallback
     }
-    const deityId = this.computeDeityId(d)
+    const deityId = DeityRotator.computeDeityId(d)
     const deity = FIVE_DEITIES.find(d => d.id === deityId)
     if (!deity) {
       return FIVE_DEITIES[0]

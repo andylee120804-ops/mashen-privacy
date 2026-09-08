@@ -10,7 +10,7 @@ export class BlessingEngine {
     try {
       const rawData = await context.resourceManager.getRawFileContent('blessings.json')
       const decoder = new util.TextDecoder('utf-8')
-      const jsonStr = decoder.decodeWithStream(rawData)
+      const jsonStr = decoder.decodeToString(rawData)
       const parsed: Record<string, string[]> = JSON.parse(jsonStr)
       this.blessings = parsed
       this.isLoaded = true

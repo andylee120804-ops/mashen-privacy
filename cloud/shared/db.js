@@ -21,6 +21,13 @@ const CRED_FILE = path.join(__dirname, '..', 'agc-credential.json');
 // 命名规则：字母开头，仅含字母数字（不能下划线/中划线）。
 const CLOUD_DB_ZONE = 'Mashen';
 
+// Cloud DB 单次操作超时（ms）。必须 < AGC 网关超时（实测 ~20s 即 504）。
+// 为什么需要：SDK HttpsCommunicator.timeout=30s，比网关 ~20s 长。
+// 若 Cloud DB 后端 hang 住（无响应），SDK 的 30s 还没到，函数已被网关 504，
+// 客户端只拿到不透明的 504。withTimeout 在 10s 主动 reject，让函数返回带上下文的 500，
+// 既避免 504，又在日志里暴露卡在哪一步。10s 留给冷启动+token(~5s)+开销(~5s) 仍在 20s 内。
+var DB_TIMEOUT_MS = 10000;
+
 let cloudInstance = null;
 let cachedDB = null;
 
@@ -66,6 +73,25 @@ function toGenericObjects(objectTypeName, records) {
   });
 }
 
+/**
+ * 给 Cloud DB 操作（.get() / .upsert() 返回的 Promise）加超时保护。
+ * Promise.race 不取消底层 HTTP 请求——超时后 SDK 请求仍在后台跑到 30s，
+ * 但函数已提前返回带上下文的 500，避免网关 504。
+ * 用法：await withTimeout(db.collection(T).query()....get(), DB_TIMEOUT_MS, 'label');
+ */
+function withTimeout(promise, ms, label) {
+  var timeout = ms || DB_TIMEOUT_MS;
+  var labelStr = label || 'cloud-db-op';
+  return Promise.race([
+    promise,
+    new Promise(function (_, reject) {
+      setTimeout(function () {
+        reject(new Error(labelStr + ' timed out after ' + timeout + 'ms'));
+      }, timeout);
+    })
+  ]);
+}
+
 /** 计算本周一日期（UTC，YYYY-MM-DD），用于周榜重置 */
 function getWeekStart(d) {
   var date = new Date(d);
@@ -75,10 +101,25 @@ function getWeekStart(d) {
   return date.toISOString().split('T')[0];
 }
 
+/**
+ * 把 CloudDBZoneGenericObject 转为普通 JS 对象。
+ * .get() 返回的 CloudDBZoneGenericObject 字段存在内部 fieldMap，
+ * 直接 item.nickname 拿不到值（返回 undefined），必须 item.getObject() 提取。
+ * 若 item 已经是普通对象（单元测试 / mock），直接返回。
+ */
+function toPlainObject(item) {
+  if (!item) return null;
+  if (typeof item.getObject === 'function') return item.getObject();
+  return item;
+}
+
 module.exports = {
   getCloud: getCloud,
   getDB: getDB,
   toGenericObjects: toGenericObjects,
+  toPlainObject: toPlainObject,
+  withTimeout: withTimeout,
   getWeekStart: getWeekStart,
-  CLOUD_DB_ZONE: CLOUD_DB_ZONE
+  CLOUD_DB_ZONE: CLOUD_DB_ZONE,
+  DB_TIMEOUT_MS: DB_TIMEOUT_MS
 };

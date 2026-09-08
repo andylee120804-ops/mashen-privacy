@@ -1,0 +1,108 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+body{margin:0;background:#1a1a0a;font-family:system-ui;color:#f9ca24;display:flex;flex-direction:column;align-items:center;padding:24px}
+h2{font-size:20px;margin:8px 0 6px}
+.hint{font-size:12px;color:rgba(253,246,227,0.45);margin-bottom:16px}
+.stage{width:340px;height:440px;position:relative;display:flex;align-items:flex-end;justify-content:center;background:linear-gradient(180deg,#1a1a0a 50%,#2a1a0a);border:1px solid rgba(249,202,36,0.12);border-radius:16px;overflow:hidden}
+/* 40ms 渐变 = 帧间交叉混合，减少 AI 帧闪烁 */
+.stage img{position:absolute;max-width:60%;max-height:60%;object-fit:contain;bottom:10%;opacity:0;transition:opacity 40ms linear}
+.stage img.active{opacity:1}
+.blessing{position:absolute;top:30%;left:50%;transform:translateX(-50%);font-size:30px;font-weight:bold;color:#f9ca24;text-shadow:0 0 14px rgba(249,202,36,0.7);opacity:0;pointer-events:none;transition:opacity 0.5s ease, top 1.2s ease-out}
+.blessing.show{opacity:1;top:15%}
+.blessing.gone{opacity:0;top:0%}
+.controls{margin-top:14px;display:flex;gap:14px;align-items:center}
+button{background:#f9ca24;color:#1a1a0a;border:0;border-radius:24px;padding:12px 32px;font-size:18px;font-weight:bold;cursor:pointer}
+button:active{transform:scale(0.95)}
+button:disabled{opacity:0.35;cursor:not-allowed}
+#cnt{font-size:14px;color:rgba(253,246,227,0.55)}
+.finish{background:transparent;color:#f9ca24;border:1px solid #f9ca24;font-size:14px;opacity:0;transition:opacity 0.3s;pointer-events:none}
+.finish.show{opacity:1;pointer-events:auto}
+.timeline{display:flex;gap:1px;margin-top:16px;width:340px;height:20px;border-radius:4px;overflow:hidden}
+.timeline .dot{flex:1;background:rgba(249,202,36,0.12);transition:background 60ms}
+.timeline .dot.active{background:#f9ca24}
+</style></head><body>
+  <h2>磕头动画 · 44帧 AI丝滑版（站立->下拜->触地停留）</h2>
+  <div class="hint">19关键帧+25中间帧。正向播放，触地停止。60ms渐变减少闪烁</div>
+  <div class="stage" id="stage">
+    <div class="blessing" id="blessing"></div>
+  </div>
+  <div class="timeline" id="timeline"></div>
+  <div class="controls">
+    <button id="btn" onclick="doKowtow()">磕头</button>
+    <span id="cnt">0 次</span>
+    <button class="finish" id="finishBtn" onclick="doFinish()">完成祈福</button>
+  </div>
+<script>
+const TOTAL=44; // 帧1~44：站立->下拜->触地停留（不含起身）
+const BLESS=['胡牌','自摸','赢钱','杠上开花','清一色','手气长红'];
+const stage=document.getElementById('stage');
+const tl=document.getElementById('timeline');
+const imgs=[];
+const dots=[];
+
+for(let i=0;i<TOTAL;i++){
+  const img=document.createElement('img');
+  const n=i+1;
+  img.src='../entry/src/main/resources/rawfile/animations/kowtow_'+(n<10?'0':'')+n+'.png';
+  if(i===0)img.classList.add('active');
+  stage.appendChild(img);
+  imgs.push(img);
+  const dot=document.createElement('div');
+  dot.className='dot';
+  if(i===0)dot.classList.add('active');
+  tl.appendChild(dot);
+  dots.push(dot);
+}
+
+let kow=0,playing=false,timers=[];
+
+function show(n){
+  for(let i=0;i<TOTAL;i++){
+    imgs[i].classList.toggle('active',i===n);
+    dots[i].classList.toggle('active',i===n);
+  }
+}
+
+function clearTimers(){
+  timers.forEach(t=>clearTimeout(t));
+  timers=[];
+}
+
+function spawnBlessing(){
+  const text=BLESS[kow%BLESS.length];
+  const el=document.getElementById('blessing');
+  el.textContent=text;
+  el.className='blessing show';
+  setTimeout(()=>{el.className='blessing gone';},700);
+}
+
+function doKowtow(){
+  if(playing)return;
+  playing=true;
+  document.getElementById('btn').disabled=true;
+  kow++;
+  document.getElementById('cnt').textContent=kow+' 次';
+  spawnBlessing();
+  show(0);
+
+  let elapsed=0;
+  // 正向逐帧 1 -> 43（每帧 35ms，40ms 渐变交叉混合）
+  for(let i=1;i<=TOTAL-1;i++){
+    elapsed+=35;
+    const f=i;
+    timers.push(setTimeout(()=>{show(f);},elapsed));
+  }
+  // 停在最后一帧（触地停留）
+  timers.push(setTimeout(()=>{
+    playing=false;
+    document.getElementById('btn').disabled=false;
+    if(kow>=3)document.getElementById('finishBtn').classList.add('show');
+  },elapsed+60));
+}
+
+function doFinish(){
+  document.getElementById('cnt').textContent='祈福完成!';
+}
+
+show(0);
+</script>
+</body></html>

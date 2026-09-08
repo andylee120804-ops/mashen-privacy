@@ -23,12 +23,18 @@ export interface EntryItem {
  * 默认 order：fortune 置顶「我的入口」第 1 条；默认 Tab = 求签 + 木鱼。
  */
 export const ENTRY_POOL: EntryDef[] = [
-  { id: 'fortune', icon: '🗓️', title: '运势·黄历' },
+  // ☯ 太极：纯字形（无 emoji 变体），Tab/列表里随主题色渲染成金色，比彩色 🗓️ 更贴项目古文化调性
+  { id: 'fortune', icon: '☯', title: '运势·黄历' },
   { id: 'qiuqian', icon: '🎋', title: '求签' },
   { id: 'muyu', icon: '🪵', title: '木鱼' },
   { id: 'wishwall', icon: '🙏', title: '还愿心愿墙' },
   { id: 'leaderboard', icon: '🏆', title: '祈福排行榜' },
-  { id: 'encyclopedia', icon: '📜', title: '财神百科' }
+  { id: 'encyclopedia', icon: '📜', title: '财神百科' },
+  // 🎲 骰子：与 🎋🙏🏆 等功能入口同风格。记录牌局在「我的」页置顶固定展示、
+  // 不随开关消失（MyPage 顶部卡即入口，不入「功能入口」行），开启后额外以底部 Tab 直达。
+  { id: 'gamerecord', icon: '🎲', title: '记录牌局' },
+  // 💡 不占用祈福固定 Tab 的 🀄 字形，避免两处同形混淆
+  { id: 'tips', icon: '💡', title: '麻将技巧' }
 ]
 
 /** 中间可配置 Tab 上限（底部导航最多 5 项：祈福 + 3 + 我的） */
@@ -47,7 +53,9 @@ const DEFAULT_ITEMS: EntryItem[] = [
   { id: 'muyu', enabled: true, order: 3 },
   { id: 'wishwall', enabled: false, order: 4 },
   { id: 'leaderboard', enabled: false, order: 5 },
-  { id: 'encyclopedia', enabled: false, order: 6 }
+  { id: 'encyclopedia', enabled: false, order: 6 },
+  { id: 'gamerecord', enabled: false, order: 7 },
+  { id: 'tips', enabled: false, order: 8 }
 ]
 
 @Observed

@@ -16,8 +16,8 @@ export struct LeaderboardItem {
         .width(40)
         .textAlign(TextAlign.Center)
 
-      // 昵称
-      Text(this.entry.nickname)
+      // 昵称（自己的条目显示完整祈福名，他人保持脱敏）
+      Text(this.getDisplayName())
         .fontSize(14)
         .fontColor('#fdf6e3')
         .layoutWeight(1)
@@ -34,13 +34,25 @@ export struct LeaderboardItem {
       // 磕头
       Text(`🙏${this.entry.kowtow}`)
         .fontSize(12)
-        .fontColor('rgba(253, 246, 227, 0.5)')
+        .fontColor('rgba(253, 246, 227, 0.6)')
     }
     .width('100%')
+    // 排名(16)/昵称(14)/次数(14)/磕头(12) 字号不同，底对齐保证文本基线一致
+    .alignItems(VerticalAlign.Bottom)
     .padding(12)
     .backgroundColor(this.isMe ? 'rgba(249, 202, 36, 0.12)' : 'transparent')
     .border({ width: { bottom: 0.5 }, color: 'rgba(249, 202, 36, 0.08)' })
     .borderRadius(this.isMe ? 8 : 0)
+  }
+
+  private getDisplayName(): string {
+    if (this.isMe) {
+      const myName: string | undefined = AppStorage.get<string>('lastPrayerName')
+      if (myName !== undefined && myName !== '') {
+        return myName
+      }
+    }
+    return this.entry.nickname
   }
 
   private getRankText(): string {

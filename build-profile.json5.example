@@ -1,0 +1,57 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "",
+          "keyAlias": "debugKey",
+          "keyPassword": "",
+          "profile": "",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "",
+          "storePassword": ""
+        }
+      },
+      {
+        "name": "release",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "填入发布证书.cer 路径",
+          "keyAlias": "releaseKey",
+          "keyPassword": "填入 keyPassword",
+          "profile": "填入发布 profile.p7b 路径",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "填入发布 .p12 路径",
+          "storePassword": "填入 storePassword"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "6.1.0(23)",
+        "compatibleSdkVersion": "5.0.0(12)",
+        "runtimeOS": "HarmonyOS"
+      }
+    ],
+    "buildModeSet": [
+      { "name": "debug" },
+      { "name": "release" }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": ["default"]
+        }
+      ]
+    }
+  ]
+}

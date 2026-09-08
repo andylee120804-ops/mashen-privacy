@@ -1,0 +1,27 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+body{margin:0;background:#1a1a0a;font-family:system-ui;color:#f9ca24;padding:20px}
+h2{font-size:18px;margin:16px 0 8px}
+.row{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:20px}
+.cell{width:70px;text-align:center}
+.cell img{width:70px;height:70px;object-fit:contain;background:#000;border-radius:4px}
+.cell span{display:block;font-size:10px;color:rgba(253,246,227,0.5);margin-top:2px}
+</style></head><body>
+  <h2>30帧版（之前说"方向对了"的版本）</h2>
+  <div class="row" id="r30"></div>
+  <h2>54帧版（当前版本）</h2>
+  <div class="row" id="r54"></div>
+<script>
+function pad(n,w){return String(n).padStart(w,'0');}
+function build(id,prefix,start,end,width,srcDir){
+  const r=document.getElementById(id);
+  let html='';
+  for(let i=start;i<=end;i++){
+    const name=prefix+pad(i,width)+'.png';
+    html+='<div class="cell"><img src="../scripts/'+srcDir+'/'+name+'"><span>'+i+'</span></div>';
+  }
+  r.innerHTML=html;
+}
+build('r30','f',1,30,2,'kowtow-frames-30');
+build('r54','f',1,54,3,'kowtow-frames-50');
+</script>
+</body></html>
