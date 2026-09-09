@@ -1,0 +1,9 @@
+{
+  "name": "game-record-backup",
+  "version": "1.0.0",
+  "description": "牌局记录云备份：pull/push（仅本人）",
+  "main": "handler.js",
+  "dependencies": {
+    "@hw-agconnect/cloud-server": "^1.0.5"
+  }
+}

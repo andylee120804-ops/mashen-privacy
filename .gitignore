@@ -21,7 +21,6 @@ entry/build-profile.json5
 /build/
 /.appanalyzer/
 /material/
-/cloud/game-record-backup/
 
 # 素材生成中间产物（scripts/ 保留生成代码，不入库媒体帧）
 /scripts/*.mp4
