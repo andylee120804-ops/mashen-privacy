@@ -29,6 +29,7 @@ const KEY_BOWED_DEITIES = 'bowedDeities'
 const KEY_WAS_TOP_DAILY = 'wasTopDaily'
 const KEY_WISH_FULFILLED_COUNT = 'wishFulfilledCount'
 const KEY_LAST_BACKUP_AT = 'lastGameRecordBackupAt'
+const KEY_DELETED_GAME_DATES = 'deletedGameDates'
 /** 记一笔/改备注后等待多少毫秒再推送备份（防抖，避免连记多笔时频繁请求） */
 const BACKUP_DEBOUNCE_MS = 2000
 
@@ -58,6 +59,8 @@ export class EnrichViewModel {
   wishFulfilledCount: number = 0
   /** 最近一次成功云备份的时间（ISO 字符串，空=从未备份）。UI 经 AppStorage 'lastGameRecordBackupAt' 读取 */
   lastBackupAt: string = ''
+  /** 本地已删除的牌局日期墓碑（YYYY-MM-DD[]）：防云端 pull 把这些日期复活 */
+  deletedGameDates: string[] = []
   /** 最近一次新解锁的徽章 ID（非空时 AchievementGrid 播放解锁动画后清空） */
   lastUnlockedBadgeId: string = ''
   private dataPrefs: preferences.Preferences | null = null
@@ -141,6 +144,101 @@ export class EnrichViewModel {
       this.persistGameRecords()
       this.queueBackup()
     }
+  }
+
+  /** 修改某天某笔的输赢/金额（不可变更新）。日期/下标越界静默忽略（UI 已二次确认） */
+  updateGame(date: string, idx: number, result: '+' | '-' | '·', magnitude: number): void {
+    const recIdx: number = this.gameRecords.findIndex(r => r.date === date)
+    if (recIdx < 0) return
+    const rec: GameRecord = this.gameRecords[recIdx]
+    if (idx < 0 || idx >= rec.games.length) return
+    const updatedGames: GameResult[] = rec.games.map((g: GameResult, i: number): GameResult => {
+      return i === idx ? { result: result, magnitude: magnitude } : g
+    })
+    this.gameRecords = [
+      ...this.gameRecords.slice(0, recIdx),
+      { date: rec.date, deityId: rec.deityId, kowtowCount: rec.kowtowCount, games: updatedGames, note: rec.note },
+      ...this.gameRecords.slice(recIdx + 1)
+    ]
+    this.persistGameRecords()
+    this.gameRecordsRev++
+    this.refreshAchievements()
+    this.queueBackup()
+  }
+
+  /** 删除某天某笔；该天删到 0 笔时按整日删除处理（进墓碑 + 云删） */
+  deleteGame(date: string, idx: number): void {
+    const recIdx: number = this.gameRecords.findIndex(r => r.date === date)
+    if (recIdx < 0) return
+    const rec: GameRecord = this.gameRecords[recIdx]
+    if (idx < 0 || idx >= rec.games.length) return
+    if (rec.games.length === 1) {
+      this.deleteDate(date)
+      return
+    }
+    this.gameRecords = [
+      ...this.gameRecords.slice(0, recIdx),
+      {
+        date: rec.date,
+        deityId: rec.deityId,
+        kowtowCount: rec.kowtowCount,
+        games: rec.games.filter((g: GameResult, i: number): boolean => i !== idx),
+        note: rec.note
+      },
+      ...this.gameRecords.slice(recIdx + 1)
+    ]
+    this.persistGameRecords()
+    this.gameRecordsRev++
+    this.refreshAchievements()
+    this.queueBackup()
+  }
+
+  /** 整日删除：本地移除 + 日期进墓碑（防云端 pull 复活）+ 立即异步尝试云删（失败由下次同步补偿） */
+  deleteDate(date: string): void {
+    const recIdx: number = this.gameRecords.findIndex(r => r.date === date)
+    if (recIdx < 0) return  // 已在删除态（防菜单双触发）
+    this.gameRecords = [...this.gameRecords.slice(0, recIdx), ...this.gameRecords.slice(recIdx + 1)]
+    this.addDeletedDate(date)
+    this.persistGameRecords()
+    this.gameRecordsRev++
+    this.refreshAchievements()
+    this.tryDeleteCloudDates([date])
+  }
+
+  private addDeletedDate(date: string): void {
+    if (this.deletedGameDates.indexOf(date) >= 0) return
+    this.deletedGameDates = [...this.deletedGameDates, date]
+    this.persistDeletedDates()
+  }
+
+  /** 墓碑清理（云端已确认无该日期后调用，防无限累积） */
+  private removeDeletedDates(dates: string[]): void {
+    const next: string[] = this.deletedGameDates.filter((d: string): boolean => dates.indexOf(d) < 0)
+    if (next.length !== this.deletedGameDates.length) {
+      this.deletedGameDates = next
+      this.persistDeletedDates()
+    }
+  }
+
+  private isDeletedDate(date: string): boolean {
+    return this.deletedGameDates.indexOf(date) >= 0
+  }
+
+  /** 立即尝试云端删除；失败仅 log，残留由 startCloudSync 补偿（不阻塞 UI） */
+  private tryDeleteCloudDates(dates: string[]): void {
+    CloudService.deleteGameRecordBackup(dates).then((ok: boolean) => {
+      if (!ok) {
+        console.warn('[EnrichViewModel] deleteGameRecordBackup failed, will retry on next sync: ' + dates.join(','))
+      }
+    }).catch((err: Object) => {
+      console.error('[EnrichViewModel] deleteGameRecordBackup exception:', JSON.stringify(err))
+    })
+  }
+
+  private async persistDeletedDates(): Promise<void> {
+    if (!this.dataPrefs) return
+    await this.dataPrefs.put(KEY_DELETED_GAME_DATES, JSON.stringify(this.deletedGameDates))
+    await this.dataPrefs.flush()
   }
 
   /** 记一笔/改备注后触发云备份：防抖 2s 合并多次写入为一次全量推送（幂等 upsert，重复推送无害） */
@@ -440,6 +538,8 @@ export class EnrichViewModel {
       this.wasTopDaily = await this.dataPrefs.get(KEY_WAS_TOP_DAILY, false) as boolean
       this.wishFulfilledCount = await this.dataPrefs.get(KEY_WISH_FULFILLED_COUNT, 0) as number
       this.lastBackupAt = await this.dataPrefs.get(KEY_LAST_BACKUP_AT, '') as string
+      const deletedDatesStr = await this.dataPrefs.get(KEY_DELETED_GAME_DATES, '[]') as string
+      this.deletedGameDates = JSON.parse(deletedDatesStr)
       // 把最近备份时间同步到 AppStorage，供 GameRecordPage 状态行经 @StorageLink 读取
       AppStorage.setOrCreate<string>('lastGameRecordBackupAt', this.lastBackupAt)
     } catch (err) {
