@@ -14,6 +14,10 @@ const RECENT_DAYS = 30
 export struct GameRecordDetailList {
   @Link enrichVM: EnrichViewModel
   @State expandedAll: boolean = false
+  /** 长按单笔 → 宿主弹菜单（date=记录日期, idx=第几笔） */
+  onRowLongPress: (date: string, idx: number) => void = () => {}
+  /** 长按整日卡 → 宿主确认删除当天 */
+  onDayCardLongPress: (record: GameRecord) => void = () => {}
 
   build() {
     Column() {
@@ -33,6 +37,13 @@ export struct GameRecordDetailList {
         }
         .width('90%')
         .margin({ top: 12, bottom: 8 })
+
+        // 长按提示：单笔=修改/删除菜单，日期卡=删除当天
+        Text('长按单笔可修改/删除 · 长按日期卡可删除当天')
+          .fontSize(10)
+          .fontColor('rgba(253, 246, 227, 0.5)')
+          .width('90%')
+          .margin({ bottom: 8 })
 
         // 展开全部时渲染全量；默认截取最近 RECENT_DAYS 天。
         // key 混入 gameRecordsRev：当天连记多笔时旧 key 不变、子节点不刷新嵌套行
@@ -130,7 +141,7 @@ export struct GameRecordDetailList {
 
       // 每笔：结果标签 + 金额独立成行
       ForEach(record.games, (game: GameResult, idx: number) => {
-        this.GameRow(game)
+        this.GameRow(game, idx, record.date)
       }, (game: GameResult, idx: number) => `${record.date}-${idx}`)
 
       // 当日赢输平计数
@@ -159,11 +170,17 @@ export struct GameRecordDetailList {
     .backgroundColor('rgba(249, 202, 36, 0.05)')
     .border({ width: 1, color: 'rgba(249, 202, 36, 0.14)', radius: 12 })
     .margin({ bottom: 10 })
+    .gesture(
+      LongPressGesture({ repeat: false })
+        .onAction(() => {
+          this.onDayCardLongPress(record)
+        })
+    )
   }
 
-  /** 单笔：左结果标签（赢=绿底深字/输=红底/平=浅灰底）+ 右金额大字 */
+  /** 单笔：左结果标签（赢=绿底深字/输=红底/平=浅灰底）+ 右金额大字；长按回调宿主 */
   @Builder
-  GameRow(game: GameResult) {
+  GameRow(game: GameResult, idx: number, date: string) {
     Row() {
       Text(this.tagText(game.result))
         .fontSize(12)
@@ -183,6 +200,12 @@ export struct GameRecordDetailList {
     }
     .width('100%')
     .padding({ top: 7, bottom: 7 })
+    .gesture(
+      LongPressGesture({ repeat: false })
+        .onAction(() => {
+          this.onRowLongPress(date, idx)
+        })
+    )
   }
 
   // ── 展示辅助 ──
