@@ -271,8 +271,9 @@ export class EnrichViewModel {
 
   /**
    * 启动云端同步（EntryAbility 在 deviceUserId 解析后调用）：
-   * 拉取云端记录 → 把云端有、本地缺的日期合并进本地（防换机/重装/清缓存丢数据）→
-   * 本地有记录则全量推回，使两端收敛一致。幂等，无记录或离线时安全跳过。
+   * 1) 拉取云端记录；2) 墓碑日期（本地已删）不回灌本地——云端仍残留则补发云删，
+   *    云端已无该日期则清理墓碑（自愈，防无限累积）；3) 其余日期合并（云端有本地缺才补）；
+   * 4) 本地有记录则全量推回。幂等，无记录/离线时安全跳过。
    */
   async startCloudSync(): Promise<void> {
     const uid: string = AppStorage.get<string>('deviceUserId') || ''
@@ -285,9 +286,28 @@ export class EnrichViewModel {
         console.warn('[EnrichViewModel] startCloudSync: 云端拉取失败，跳过合并（保留本地）')
         return
       }
-      // 合并云端有、本地缺的日期（记录是追加式的，本地更全；云端缺的由全量推回补齐）
+      // 墓碑日期不回灌：本地删了，云端即使残留也要保持两端删除态
+      const toDeleteCloud: string[] = []
+      const keep: GameRecord[] = []
+      for (const r of remote) {
+        if (this.isDeletedDate(r.date)) {
+          toDeleteCloud.push(r.date)
+        } else {
+          keep.push(r)
+        }
+      }
+      if (toDeleteCloud.length > 0) {
+        const ok: boolean = await CloudService.deleteGameRecordBackup(toDeleteCloud)
+        // 成功 = 云端行已删，墓碑使命完成；失败 = 保墓碑，下次同步再补偿
+        if (ok) {
+          this.removeDeletedDates(toDeleteCloud)
+        } else {
+          console.warn('[EnrichViewModel] startCloudSync: 云端墓碑残留删除失败，下次再试: ' + toDeleteCloud.join(','))
+        }
+      }
+      // 合并云端有、本地缺的日期（墓碑日期已排除，不会复活）
       const localDates: string[] = this.gameRecords.map((r: GameRecord) => r.date)
-      const missing: GameRecord[] = remote.filter((r: GameRecord) => localDates.indexOf(r.date) === -1)
+      const missing: GameRecord[] = keep.filter((r: GameRecord) => localDates.indexOf(r.date) === -1)
       if (missing.length > 0) {
         this.gameRecords = [...missing, ...this.gameRecords].sort((a: GameRecord, b: GameRecord) => {
           return a.date < b.date ? 1 : -1
