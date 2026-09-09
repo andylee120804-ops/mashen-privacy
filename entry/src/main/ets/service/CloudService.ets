@@ -249,4 +249,23 @@ export class CloudService {
       return false
     }
   }
+
+  /** 删除云端牌局记录（按日期，仅本人）。幂等：云端本无该日期也返回成功 */
+  static async deleteGameRecordBackup(dates: string[]): Promise<boolean> {
+    try {
+      const result = await cloudFunction.call({
+        name: 'game-record-backup',
+        data: {
+          action: 'delete',
+          dates: dates,
+          __uid: getUserId()
+        }
+      })
+      const env: CloudEnvelope | null = parseEnvelope(result.result)
+      return env !== null && env.code === 0
+    } catch (err) {
+      console.error('[CloudService] deleteGameRecordBackup failed:', JSON.stringify(err))
+      return false
+    }
+  }
 }
