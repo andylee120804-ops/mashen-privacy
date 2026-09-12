@@ -10,6 +10,7 @@ import { GameRecordDetailList } from '../components/GameRecordDetailList'
 import { PageBack } from '../components/PageBack'
 import { GameRecord, GameResult } from '../model/EnrichTypes'
 import { promptAction } from '@kit.ArkUI'
+import { common, ConfigurationConstant } from '@kit.AbilityKit'
 
 @Component
 export struct GameRecordPage {
@@ -60,6 +61,13 @@ export struct GameRecordPage {
     return rec.games[this.menuIdx]
   }
 
+  /** 系统弹窗按钮文字色：跟随系统深浅色（浅色弹窗用深字，深色弹窗用米字），保证文字与底色可分 */
+  private dialogTextColor(): string {
+    const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined
+    const dark: boolean = !!ctx && ctx.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK
+    return dark ? '#fdf6e3' : '#1a1a0a'
+  }
+
   /** 该笔描述文案：赢 +50 / 输 -50 / 平 */
   private gameDesc(game: GameResult | null): string {
     if (!game) return ''
@@ -93,7 +101,7 @@ export struct GameRecordPage {
       title: '删除这笔记录',
       message: `确定删除这笔「${desc}」吗？此操作不可恢复。`,
       buttons: [
-        { text: '取消', color: '#fdf6e3' },
+        { text: '取消', color: this.dialogTextColor() },
         { text: '删除', color: '#e74c3c' }
       ]
     }).then((result: promptAction.ShowDialogSuccessResponse) => {
@@ -113,7 +121,7 @@ export struct GameRecordPage {
       title: '删除当天记录',
       message: `确定删除 ${monthDay} 的全部记录（共 ${record.games.length} 笔）吗？将同步删除云端备份，不可恢复。`,
       buttons: [
-        { text: '取消', color: '#fdf6e3' },
+        { text: '取消', color: this.dialogTextColor() },
         { text: '删除', color: '#e74c3c' }
       ]
     }).then((result: promptAction.ShowDialogSuccessResponse) => {

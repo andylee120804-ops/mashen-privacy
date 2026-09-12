@@ -1,5 +1,6 @@
 import { PrayerRecord } from '../model/PrayerTypes'
 import { promptAction } from '@kit.ArkUI'
+import { common, ConfigurationConstant } from '@kit.AbilityKit'
 
 /**
  * 祈福记录懒加载数据源：配合 LazyForEach 只构建可视区行，
@@ -169,12 +170,19 @@ export struct HistoryPanel {
     )
   }
 
+  /** 系统弹窗按钮文字色：跟随系统深浅色（浅色弹窗用深字，深色弹窗用米字），保证文字与底色可分 */
+  private dialogTextColor(): string {
+    const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined
+    const dark: boolean = !!ctx && ctx.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK
+    return dark ? '#fdf6e3' : '#1a1a0a'
+  }
+
   private showDeleteConfirm(record: PrayerRecord): void {
     this.getUIContext().getPromptAction().showDialog({
       title: '删除祈福记录',
       message: `确定删除「${record.name}」的祈福记录吗？此操作不可恢复。`,
       buttons: [
-        { text: '取消', color: '#fdf6e3' },
+        { text: '取消', color: this.dialogTextColor() },
         { text: '删除', color: '#e74c3c' }
       ]
     }).then((result: promptAction.ShowDialogSuccessResponse) => {
@@ -189,8 +197,8 @@ export struct HistoryPanel {
       title: '清空祈福记录',
       message: '确定要清空所有祈福记录吗？此操作不可恢复。',
       buttons: [
-        { text: '取消', color: '#fdf6e3' },
-        { text: '清空', color: '#f9ca24' }
+        { text: '取消', color: this.dialogTextColor() },
+        { text: '清空', color: '#e74c3c' }
       ]
     }).then((result: promptAction.ShowDialogSuccessResponse) => {
       if (result.index === 1) {
