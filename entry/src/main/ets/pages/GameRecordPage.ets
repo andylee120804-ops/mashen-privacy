@@ -9,8 +9,7 @@ import { GameRecordCard } from '../components/GameRecordCard'
 import { GameRecordDetailList } from '../components/GameRecordDetailList'
 import { PageBack } from '../components/PageBack'
 import { GameRecord, GameResult } from '../model/EnrichTypes'
-import { promptAction } from '@kit.ArkUI'
-import { common, ConfigurationConstant } from '@kit.AbilityKit'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 @Component
 export struct GameRecordPage {
@@ -27,6 +26,13 @@ export struct GameRecordPage {
   @State editVisible: boolean = false
   @State editResult: '+' | '-' | '·' = '+'
   @State editAmount: string = ''
+  /** 删除确认弹窗状态 */
+  @State confirmVisible: boolean = false
+  @State confirmTitle: string = ''
+  @State confirmMsg: string = ''
+  /** 待删记录定位：date + idx（idx>=0 删单笔；<0 删整日） */
+  @State confirmDate: string = ''
+  @State confirmIdx: number = -1
 
   /** 把 ISO 时间转成本地「MM-DD HH:mm」展示 */
   private formatBackupTime(iso: string): string {
@@ -61,13 +67,6 @@ export struct GameRecordPage {
     return rec.games[this.menuIdx]
   }
 
-  /** 系统弹窗按钮文字色：跟随系统深浅色（浅色弹窗用深字，深色弹窗用米字），保证文字与底色可分 */
-  private dialogTextColor(): string {
-    const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined
-    const dark: boolean = !!ctx && ctx.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK
-    return dark ? '#fdf6e3' : '#1a1a0a'
-  }
-
   /** 该笔描述文案：赢 +50 / 输 -50 / 平 */
   private gameDesc(game: GameResult | null): string {
     if (!game) return ''
@@ -89,46 +88,42 @@ export struct GameRecordPage {
     this.editVisible = true
   }
 
-  /** 长按单笔菜单 → 删除这笔（确认后删；删到 0 笔自动整日删除） */
+  /** 长按单笔菜单 → 删除这笔：打开项目风格确认弹窗（删到 0 笔自动整日删除） */
   private confirmDeleteRow(): void {
     const game = this.currentMenuGame()
     if (!game) {
       this.closeRowMenu()
       return
     }
-    const desc: string = this.gameDesc(game)
-    this.getUIContext().getPromptAction().showDialog({
-      title: '删除这笔记录',
-      message: `确定删除这笔「${desc}」吗？此操作不可恢复。`,
-      buttons: [
-        { text: '取消', color: this.dialogTextColor() },
-        { text: '删除', color: '#e74c3c' }
-      ]
-    }).then((result: promptAction.ShowDialogSuccessResponse) => {
-      if (result.index === 1) {
-        const date: string = this.menuDate
-        const idx: number = this.menuIdx
-        this.closeRowMenu()
-        this.enrichVM.deleteGame(date, idx)
-      }
-    })
+    this.confirmTitle = '删除这笔记录'
+    this.confirmMsg = `确定删除这笔「${this.gameDesc(game)}」吗？此操作不可恢复。`
+    this.confirmDate = this.menuDate
+    this.confirmIdx = this.menuIdx
+    this.menuVisible = false
+    this.confirmVisible = true
   }
 
-  /** 长按整日卡 → 确认删除当天全部 */
+  /** 长按整日卡 → 打开删除当天确认弹窗 */
   private confirmDeleteDay(record: GameRecord): void {
-    const monthDay: string = this.monthDayText(record.date)
-    this.getUIContext().getPromptAction().showDialog({
-      title: '删除当天记录',
-      message: `确定删除 ${monthDay} 的全部记录（共 ${record.games.length} 笔）吗？将同步删除云端备份，不可恢复。`,
-      buttons: [
-        { text: '取消', color: this.dialogTextColor() },
-        { text: '删除', color: '#e74c3c' }
-      ]
-    }).then((result: promptAction.ShowDialogSuccessResponse) => {
-      if (result.index === 1) {
-        this.enrichVM.deleteDate(record.date)
-      }
-    })
+    this.confirmTitle = '删除当天记录'
+    this.confirmMsg = `确定删除 ${this.monthDayText(record.date)} 的全部记录（共 ${record.games.length} 笔）吗？将同步删除云端备份，不可恢复。`
+    this.confirmDate = record.date
+    this.confirmIdx = -1
+    this.confirmVisible = true
+  }
+
+  /** 确认弹窗 → 执行删除（idx>=0 删单笔，否则删整日） */
+  private confirmExecute(): void {
+    const date: string = this.confirmDate
+    const idx: number = this.confirmIdx
+    this.confirmVisible = false
+    this.confirmDate = ''
+    this.confirmIdx = -1
+    if (idx >= 0) {
+      this.enrichVM.deleteGame(date, idx)
+    } else {
+      this.enrichVM.deleteDate(date)
+    }
   }
 
   /** 编辑弹窗确认：校验金额后更新（输赢金额必填 >0，平免金额） */
@@ -406,6 +401,17 @@ export struct GameRecordPage {
       // 修改这笔 → 预填编辑弹窗
       if (this.editVisible) {
         this.EditDialog()
+      }
+      // 删除确认（项目风格弹窗，替代系统 showDialog）
+      if (this.confirmVisible) {
+        ConfirmDialog({
+          title: this.confirmTitle,
+          message: this.confirmMsg,
+          confirmText: '删除',
+          danger: true,
+          onCancel: () => { this.confirmVisible = false },
+          onConfirm: () => { this.confirmExecute() }
+        })
       }
     }
     .width('100%')

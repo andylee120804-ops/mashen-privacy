@@ -1,6 +1,5 @@
 import { PrayerRecord } from '../model/PrayerTypes'
-import { promptAction } from '@kit.ArkUI'
-import { common, ConfigurationConstant } from '@kit.AbilityKit'
+import { ConfirmDialog } from './ConfirmDialog'
 
 /**
  * 祈福记录懒加载数据源：配合 LazyForEach 只构建可视区行，
@@ -41,6 +40,13 @@ export struct HistoryPanel {
   onClose: () => void = () => {}
   onClear: () => void = () => {}
   onDelete: (id: string) => void = (_id: string) => {}
+  /** 删除/清空确认弹窗状态 */
+  @State confirmVisible: boolean = false
+  @State confirmTitle: string = ''
+  @State confirmMsg: string = ''
+  /** 'del' = 删除单条；'clear' = 清空全部 */
+  @State confirmKind: string = 'del'
+  @State confirmRecordId: string = ''
   private dataSource: HistoryDataSource = new HistoryDataSource()
 
   aboutToAppear(): void {
@@ -52,7 +58,8 @@ export struct HistoryPanel {
   }
 
   build() {
-    Column() {
+    Stack() {
+      Column() {
       // 顶部标题栏：避开状态栏，左侧返回按钮 + 居中标题 + 右侧清空按钮
       Row() {
         Text('← 返回')
@@ -130,6 +137,19 @@ export struct HistoryPanel {
         .onActionEnd(() => this.onClose()),
       GestureMask.Normal
     )
+
+    // 删除/清空确认（项目风格弹窗）
+    if (this.confirmVisible) {
+      ConfirmDialog({
+        title: this.confirmTitle,
+        message: this.confirmMsg,
+        confirmText: this.confirmKind === 'clear' ? '清空' : '删除',
+        danger: true,
+        onCancel: () => { this.confirmVisible = false },
+        onConfirm: () => { this.confirmExecute() }
+      })
+    }
+    }
   }
 
   @Builder
@@ -170,41 +190,34 @@ export struct HistoryPanel {
     )
   }
 
-  /** 系统弹窗按钮文字色：跟随系统深浅色（浅色弹窗用深字，深色弹窗用米字），保证文字与底色可分 */
-  private dialogTextColor(): string {
-    const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined
-    const dark: boolean = !!ctx && ctx.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK
-    return dark ? '#fdf6e3' : '#1a1a0a'
-  }
-
+  /** 删除单条祈福记录 → 项目风格确认弹窗 */
   private showDeleteConfirm(record: PrayerRecord): void {
-    this.getUIContext().getPromptAction().showDialog({
-      title: '删除祈福记录',
-      message: `确定删除「${record.name}」的祈福记录吗？此操作不可恢复。`,
-      buttons: [
-        { text: '取消', color: this.dialogTextColor() },
-        { text: '删除', color: '#e74c3c' }
-      ]
-    }).then((result: promptAction.ShowDialogSuccessResponse) => {
-      if (result.index === 1) {
-        this.onDelete(record.id)
-      }
-    })
+    this.confirmKind = 'del'
+    this.confirmRecordId = record.id
+    this.confirmTitle = '删除祈福记录'
+    this.confirmMsg = `确定删除「${record.name}」的祈福记录吗？此操作不可恢复。`
+    this.confirmVisible = true
   }
 
+  /** 清空全部祈福记录 → 项目风格确认弹窗 */
   private showClearConfirm(): void {
-    this.getUIContext().getPromptAction().showDialog({
-      title: '清空祈福记录',
-      message: '确定要清空所有祈福记录吗？此操作不可恢复。',
-      buttons: [
-        { text: '取消', color: this.dialogTextColor() },
-        { text: '清空', color: '#e74c3c' }
-      ]
-    }).then((result: promptAction.ShowDialogSuccessResponse) => {
-      if (result.index === 1) {
-        this.onClear()
-      }
-    })
+    this.confirmKind = 'clear'
+    this.confirmTitle = '清空祈福记录'
+    this.confirmMsg = '确定要清空所有祈福记录吗？此操作不可恢复。'
+    this.confirmVisible = true
+  }
+
+  /** 确认弹窗 → 执行删除/清空 */
+  private confirmExecute(): void {
+    const kind: string = this.confirmKind
+    const id: string = this.confirmRecordId
+    this.confirmVisible = false
+    this.confirmRecordId = ''
+    if (kind === 'clear') {
+      this.onClear()
+    } else {
+      this.onDelete(id)
+    }
   }
 
   private formatTime(timestamp: number): string {
