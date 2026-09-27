@@ -1,34 +1,32 @@
 // entry/src/main/ets/service/IPaymentService.ets
-// 供奉打赏支付服务接口（华为 IAP）。
-// 旧二维码支付（QrCodePayment）已随供奉弹窗重设计整体移除：
-// AppGallery 要求虚拟商品/打赏必须走华为应用内支付（审核 3.5）。
-// 时序契约（设计文档第 5 节）：记账在消耗之前——云端上报成功后才 finishPurchase，
-// 失败则订单保持未完成，留给 EntryAbility 启动补单（幂等不双记）。
+// 解签买断支付服务接口（华为 IAP 非消耗型商品）。
+// 供奉打赏（5 档消耗型 tip_06~88）已随审核整改移除（2026-09-27 封建迷信拒审），
+// 改为解签一次性买断：jieqian_unlock（¥0.9）非消耗型，买断一次永久解锁全部解签。
+// 非消耗型无「消耗」动作：支付成功即拥有；权益靠本地标志（主）+ restoreOwned 恢复。
 
-/** 供奉档位（与 AGC 控制台消耗型商品一一对应，真实价格以收银台/控制台为准） */
-export interface TipProduct {
-  productId: string      // AGC 商品 ID（tip_06 等，与服务端白名单一致）
-  amount: number          // 本地展示金额（记账口径与服务端白名单一致）
+/** 解签买断商品（与 AGC 控制台非消耗型商品 jieqian_unlock 唯一对应） */
+export interface UnlockProduct {
+  productId: string      // AGC 商品 ID（jieqian_unlock，与服务端 jieqian-unlock 白名单一致）
+  amount: number          // 本地展示金额（¥0.9；AGC 无 0.9 档则落 1，标签同步改）
   label: string           // 文化标签
 }
 
-/** 购买结果。success 时含云端记账所需全部字段 */
-export interface TipPurchaseResult {
+/** 购买结果。success 时含云端记录所需全部字段 */
+export interface UnlockPurchaseResult {
   success: boolean
   canceled: boolean       // 用户取消（1001860000），静默返回不弹错
-  productId: string
-  amount: number          // 白名单定价（与服务端 donation-record 白名单一致）
+  productId: string       // 白名单商品 ID（与云端 jieqian-unlock 白名单一致）
   purchaseToken: string   // 幂等去重键
-  orderId: string          // purchaseOrderId
+  orderId: string          // purchaseOrderId，SignUnlock 主键
   purchaseData: string    // 华为签名原文（云端存证，未来 verify 用）
 }
 
-/** 支付前置错误（UI 按 kind 引导处理，设计文档第 8 节错误表） */
+/** 支付前置错误（UI 按 kind 引导处理） */
 export enum PaymentErrorKind {
   NEED_LOGIN = 'need_login',   // 1001860050 未登录华为帐号
   REGION = 'region',           // 1001860054 地区不支持
   PRODUCT = 'product',          // 1001860007 商品未发布
-  RETRY_AFTER_COMPLETE = 'retry_after_complete'  // 1001860051 同商品有未完成订单，已补单，请重试
+  ALREADY_OWNED = 'already_owned'  // 1001860051 已拥有（非消耗型重复购买被拒，应走恢复）
 }
 
 export class PaymentError extends Error {
@@ -41,37 +39,32 @@ export class PaymentError extends Error {
   }
 }
 
-/**
- * 供奉档位静态表。
- * ⚠️ productId/amount 必须三方一致：AGC 控制台商品配置、云函数
- * donation-record/handler.js 的 PRODUCT_IDS 白名单、本表。控制台改价需同步两处。
- */
-export const TIP_PRODUCTS: TipProduct[] = [
-  { productId: 'tip_06', amount: 0.6, label: '小小心意' },
-  { productId: 'tip_6', amount: 6, label: '顺顺供奉' },
-  { productId: 'tip_18', amount: 18, label: '财运供奉' },
-  { productId: 'tip_66', amount: 66, label: '大吉供奉' },
-  { productId: 'tip_88', amount: 88, label: '至尊供奉' }
-]
+/** 解签买断商品静态配置（三方一致：AGC 控制台 / 云函数 jieqian-unlock 白名单 / 本表） */
+export const UNLOCK_PRODUCT: UnlockProduct = {
+  productId: 'jieqian_unlock',
+  amount: 0.9,
+  label: '永久解锁解签'
+}
 
-export interface ITipPaymentService {
-  /** 供奉档位列表 */
-  getProducts(): TipProduct[]
+export interface IUnlockService {
+  /** 解签买断商品信息 */
+  getProduct(): UnlockProduct
 
   /**
-   * 发起供奉（拉起华为收银台）。
+   * 发起买断（拉起华为收银台）。
    * 用户取消 → { success: false, canceled: true }；
-   * 前置错误（未登录/地区/商品未发布）→ 抛 PaymentError（UI 引导后可重试）；
-   * 其他错误 → 抛 Error（UI toast「支付失败请重试」）。
+   * 前置错误（未登录/地区/商品未发布/已拥有）→ 抛 PaymentError（UI 引导后处理）；
+   * 其他错误 → 抛 Error（UI toast「购买失败请重试」）。
    */
-  purchase(productId: string): Promise<TipPurchaseResult>
+  purchase(): Promise<UnlockPurchaseResult>
 
   /**
-   * 确认消耗（finishPurchase）。时序契约：云端记账成功后才调用——
-   * 云端没记上绝不消耗，订单保持未完成留给启动补单。
+   * 权益恢复：queryPurchases(NONCONSUMABLE, FINISHED) 查已购订单。
+   * 重装/换机/离线恢复走此路径（华为帐号权益）。返回已购订单
+   * （含 purchaseToken 供云端幂等补记）；未购/查询失败返回 null。
    */
-  finishPurchase(result: TipPurchaseResult): Promise<void>
+  restoreOwned(): Promise<UnlockPurchaseResult | null>
 
-  /** 启动补单：queryPurchases 拉未完成订单（已支付未消耗），逐条记账+消耗。返回补单数 */
-  completePendingOrders(): Promise<number>
+  /** 是否已购（restoreOwned 的布尔形态，UI 快速判断用） */
+  isOwned(): Promise<boolean>
 }
