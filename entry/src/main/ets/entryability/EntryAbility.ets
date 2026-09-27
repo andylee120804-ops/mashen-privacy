@@ -8,8 +8,10 @@ import { util } from '@kit.ArkTS'
 import { EntryConfigVM } from '../viewmodels/EntryConfigVM'
 import { FortuneViewModel } from '../viewmodels/FortuneViewModel'
 import { MuyuViewModel } from '../viewmodels/MuyuViewModel'
-import { QiuQianViewModel } from '../viewmodels/QiuQianViewModel'
+import { QiuQianViewModel, KEY_UNLOCKED } from '../viewmodels/QiuQianViewModel'
 import { IapPaymentService } from '../service/IapPaymentService'
+import { UnlockPurchaseResult } from '../service/IPaymentService'
+import { CloudService } from '../service/CloudService'
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
@@ -77,12 +79,30 @@ export default class EntryAbility extends UIAbility {
           console.error('EnrichViewModel startCloudSync failed:', JSON.stringify(err))
         })
 
-        // IAP 防漏单补单：上次供奉若「已支付未消耗」（上报云端失败/进程被杀），
-        // 这里补「云端幂等记账 + finishPurchase」。deviceUserId 就绪后才有 __uid 可记账；
+        // 解签买断权益恢复：非消耗型商品已购（重装/换机/上次云端未记）→
+        // 置本地解锁标志 + 云端幂等补记。deviceUserId 就绪后才有 __uid 可记账；
         // 未登录华为帐号时 queryPurchases 会安全跳过，下次启动再补。
         const iapService = new IapPaymentService(this.context)
-        iapService.completePendingOrders().catch((err: Object) => {
-          console.error('IapPaymentService completePendingOrders failed:', JSON.stringify(err))
+        iapService.restoreOwned().then((owned: UnlockPurchaseResult | null) => {
+          if (owned === null) {
+            return
+          }
+          qiuVM.setUnlocked(true).catch((err: Object) => {
+            console.error('QiuQianViewModel setUnlocked failed:', JSON.stringify(err))
+          })
+          prefs.put(KEY_UNLOCKED, true).then(() => {
+            return prefs.flush()
+          }).catch((err: Object) => {
+            console.error('EntryAbility save jieqianUnlocked failed:', JSON.stringify(err))
+          })
+          CloudService.recordSignUnlock({
+            productId: owned.productId,
+            purchaseToken: owned.purchaseToken,
+            purchaseData: owned.purchaseData,
+            orderId: owned.orderId
+          })
+        }).catch((err: Object) => {
+          console.error('IapPaymentService restoreOwned failed:', JSON.stringify(err))
         })
       })
     })
