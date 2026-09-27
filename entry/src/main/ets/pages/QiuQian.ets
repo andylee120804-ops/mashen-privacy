@@ -962,9 +962,9 @@ export struct QiuQianPage {
     }
     this.restoreCheckDone = true
     const iap = new IapPaymentService(this.getUIContext().getHostContext() as common.UIAbilityContext)
-    iap.restoreOwned().then((owned: UnlockPurchaseResult | null) => {
+    iap.restoreOwned().then(async (owned: UnlockPurchaseResult | null) => {
       if (owned !== null) {
-        this.applyUnlock(owned)
+        await this.applyUnlock(owned)
       }
     }).catch((err: Object) => {
       console.error('[QiuQian] restoreUnlock failed:', JSON.stringify(err))
@@ -1000,6 +1000,9 @@ export struct QiuQianPage {
 
   /** 解锁落账：本地置位（主权益源，立即生效）+ 云端幂等补记（失败不阻塞解锁） */
   private async applyUnlock(result: UnlockPurchaseResult): Promise<void> {
+    if (this.unlocked) {
+      return  // 已解锁（恢复/买断并发竞态）：幂等短路，避免双 toast 与重复记账
+    }
     await this.qiuVM.setUnlocked(true)
     this.unlocked = true
     this.toast('解签已解锁 · 功德圆满 🙏')
