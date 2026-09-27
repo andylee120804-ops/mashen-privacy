@@ -14,7 +14,7 @@ const AdmZip = require('adm-zip');
 
 const CLOUD_DIR = __dirname;
 const SHARED_DIR = path.join(CLOUD_DIR, 'shared');
-const FUNCTIONS = ['update-prayer-count', 'get-leaderboard', 'wish-wall', 'game-record-backup', 'donation-record'];
+const FUNCTIONS = ['update-prayer-count', 'get-leaderboard', 'wish-wall', 'game-record-backup', 'donation-record', 'jieqian-unlock'];
 
 /** 递归收集目录下所有文件，返回正斜杠相对路径 */
 function collectFiles(rootDir) {
