@@ -8,6 +8,7 @@ const PREF_NAME = 'mashen_qiuqian_prefs'
 const KEY_RECORDS = 'qiuRecords'
 const KEY_DAILY = 'qiuDaily'
 export const MAX_DAILY_QIU = 3      // 每日最多求签次数
+export const KEY_UNLOCKED = 'jieqianUnlocked'   // 解签买断解锁标志（存 mashen_user_prefs，与 deviceUserId 同文件；EntryAbility 恢复路径复用）
 const MAX_QIU_RECORDS = 100         // 本机保留记录上限
 
 /** 每日额度（按本地日期滚动） */
@@ -28,6 +29,8 @@ export class QiuQianViewModel {
   records: QiuRecord[] = []
   daily: QiuDaily = { date: '', count: 0 }
   private dataPrefs: preferences.Preferences | null = null
+  private unlockPrefs: preferences.Preferences | null = null
+  unlocked: boolean = false   // 解签买断解锁状态（内存主权益源）
 
   async initialize(context: Context): Promise<void> {
     this.dataPrefs = await preferences.getPreferences(context, PREF_NAME)
@@ -42,6 +45,17 @@ export class QiuQianViewModel {
       console.error('[QiuQianVM] load failed:', JSON.stringify(err))
       this.records = []
       this.daily = { date: '', count: 0 }
+    }
+    try {
+      this.unlockPrefs = await preferences.getPreferences(context, 'mashen_user_prefs')
+      const raw = await this.unlockPrefs.get(KEY_UNLOCKED, false)
+      // 启动恢复（EntryAbility setUnlocked）可能先于本初始化置位内存值：
+      // 已置位则不覆盖（避免读旧快照把解锁回退）
+      if (!this.unlocked) {
+        this.unlocked = raw === true
+      }
+    } catch (err) {
+      console.error('[QiuQianVM] load unlocked failed:', JSON.stringify(err))
     }
   }
 
@@ -99,6 +113,25 @@ export class QiuQianViewModel {
   async clearRecords(): Promise<void> {
     this.records = []
     await this.persistRecords()
+  }
+
+  isUnlocked(): boolean {
+    return this.unlocked
+  }
+
+  /** 置解锁状态并落盘（支付成功 / restoreOwned 恢复时调用）。
+   *  内存值立即生效；持久化失败仅记日志（重装后由 EntryAbility 恢复路径重写）。 */
+  async setUnlocked(v: boolean): Promise<void> {
+    this.unlocked = v
+    if (this.unlockPrefs === null) {
+      return
+    }
+    try {
+      await this.unlockPrefs.put(KEY_UNLOCKED, v)
+      await this.unlockPrefs.flush()
+    } catch (err) {
+      console.error('[QiuQianVM] save unlocked failed:', JSON.stringify(err))
+    }
   }
 
   private async persistRecords(): Promise<void> {
