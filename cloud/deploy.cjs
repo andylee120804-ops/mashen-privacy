@@ -1,7 +1,7 @@
 // cloud/deploy.cjs
 // 打包 AGC 云函数 ZIP（每个函数：复制 shared/ + 安装依赖 + 打 zip）。
 // 用法：node cloud/deploy.cjs [func-name...]
-//   node cloud/deploy.cjs                      # 打包全部 5 个函数
+//   node cloud/deploy.cjs                      # 打包全部 6 个函数
 //   node cloud/deploy.cjs update-prayer-count  # 只打包指定函数
 // 产物：cloud/<func>/<func>.zip，上传到 AGC 控制台云函数。
 // 注意：agc-credential.json 需手动放置到 cloud/ 根目录（API Client 凭证，见 README）。
