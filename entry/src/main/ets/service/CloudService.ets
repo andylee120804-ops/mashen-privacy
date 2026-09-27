@@ -6,7 +6,7 @@
 // 注意：ArkTS 不允许在 static 方法中使用 this（arkts-no-standalone-this），
 // 故 getUserId/getNickname/parseEnvelope 为模块级函数，static 方法直接调用。
 import { cloudFunction } from '@kit.CloudFoundationKit'
-import { LeaderboardEntry, LeaderboardType, Wish, GameRecord, DonationParams, MeritInfo } from '../model/EnrichTypes'
+import { LeaderboardEntry, LeaderboardType, Wish, GameRecord, SignUnlockParams } from '../model/EnrichTypes'
 
 /** 云函数统一返回信封 */
 interface CloudEnvelope {
@@ -18,6 +18,11 @@ interface CloudEnvelope {
 /** 今日香火人数统计返回体 */
 interface IncenseCountData {
   count: number
+}
+
+/** 解签解锁状态返回体 */
+interface UnlockStatusData {
+  unlocked: boolean
 }
 
 /** 设备匿名 ID（EntryAbility 启动时生成并写入 AppStorage） */
@@ -281,20 +286,16 @@ export class CloudService {
     }
   }
 
-  /**
-   * 上报打赏流水（IAP 支付成功后调用）。
-   * 云端按 purchaseToken 幂等去重，重复上报不双记。
-   * 成功返回最新累计功德；失败返回 null——调用方（IapPaymentService）
-   * 必须在上报成功后才 finishPurchase，失败则留待启动补单。
-   */
-  static async recordDonation(params: DonationParams): Promise<MeritInfo | null> {
+  /** 上报解签买断（IAP 支付成功后调用）。云端按 purchaseToken 幂等去重。
+   *  成功返回 true；失败返回 false——不阻塞解锁（本地标志已生效），
+   *  重装/换机后由 restoreOwned 恢复 + 幂等补记。 */
+  static async recordSignUnlock(params: SignUnlockParams): Promise<boolean> {
     try {
       const result = await cloudFunction.call({
-        name: 'donation-record',
+        name: 'jieqian-unlock',
         data: {
           action: 'record',
           productId: params.productId,
-          amount: params.amount,
           purchaseToken: params.purchaseToken,
           purchaseData: params.purchaseData,
           orderId: params.orderId,
@@ -302,28 +303,18 @@ export class CloudService {
         }
       })
       const env: CloudEnvelope | null = parseEnvelope(result.result)
-      if (env !== null && env.code === 0 && env.data !== null) {
-        return env.data as MeritInfo
-      }
-      // 诊断：真机上 result.result 可能是 JSON 字符串（parseEnvelope 已兼容），
-      // 仍失败则打印原始形态与内容，便于定位云端返回异常
-      const rawText: string = typeof result.result === 'string'
-        ? (result.result as string)
-        : JSON.stringify(result.result)
-      console.error('[CloudService] recordDonation cloud error: env=' + (env ? env.code + '/' + env.message : 'null')
-        + ' raw=' + (rawText ? rawText.substring(0, 300) : '(empty)'))
-      return null
+      return env !== null && env.code === 0
     } catch (err) {
-      console.error('[CloudService] recordDonation failed:', JSON.stringify(err))
-      return null
+      console.error('[CloudService] recordSignUnlock failed:', JSON.stringify(err))
+      return false
     }
   }
 
-  /** 拉取我的累计功德（供奉弹窗「我的累计功德」显示区）。失败返回 null，由调用方走本地缓存兜底 */
-  static async getMyMerit(): Promise<MeritInfo | null> {
+  /** 查询该设备是否已解锁解签（云端兜底，与 restoreOwned 双保险）。失败返回 false */
+  static async getSignUnlockStatus(): Promise<boolean> {
     try {
       const result = await cloudFunction.call({
-        name: 'donation-record',
+        name: 'jieqian-unlock',
         data: {
           action: 'query',
           __uid: getUserId()
@@ -331,13 +322,13 @@ export class CloudService {
       })
       const env: CloudEnvelope | null = parseEnvelope(result.result)
       if (env !== null && env.code === 0 && env.data !== null) {
-        return env.data as MeritInfo
+        const d: UnlockStatusData = env.data as UnlockStatusData
+        return d.unlocked === true
       }
-      console.error('[CloudService] getMyMerit cloud error: ' + (env ? env.message : 'bad format'))
-      return null
+      return false
     } catch (err) {
-      console.error('[CloudService] getMyMerit failed:', JSON.stringify(err))
-      return null
+      console.error('[CloudService] getSignUnlockStatus failed:', JSON.stringify(err))
+      return false
     }
   }
 }
