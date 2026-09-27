@@ -1,0 +1,9 @@
+{
+  "name": "jieqian-unlock",
+  "version": "1.0.0",
+  "description": "解签买断解锁记录：record（幂等记账）/ query（解锁状态）",
+  "main": "handler.js",
+  "dependencies": {
+    "@hw-agconnect/cloud-server": "^1.0.5"
+  }
+}
