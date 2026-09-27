@@ -51,7 +51,7 @@ export interface UnlockPurchaseResult {
 export interface IUnlockService {
   getProduct(): UnlockProduct
   purchase(): Promise<UnlockPurchaseResult>   // 拉起收银台买断
-  isOwned(): Promise<boolean>                 // queryPurchases(NONCONSUMABLE, FINISHED) 恢复权益
+  isOwned(): Promise<boolean>                 // queryPurchases(NONCONSUMABLE, CURRENT_ENTITLEMENT) 恢复权益
 }
 ```
 
