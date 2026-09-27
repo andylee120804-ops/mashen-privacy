@@ -6,7 +6,7 @@
 // 非消耗型无「消耗」动作，时序简单：客户端支付成功 → 本地置位立即解锁 →
 //   云端记录（失败不阻塞解锁，重装/换机后由客户端 isOwned() 恢复 + 幂等补记）。
 const { wrapHttp, success, fail, CODE } = require('./shared/response');
-const { getDB, toGenericObjects, toPlainObject, withTimeout, DB_TIMEOUT_MS } = require('./shared/db');
+const { getDB, toGenericObjects, withTimeout, DB_TIMEOUT_MS } = require('./shared/db');
 
 var UNLOCK_TYPE = 'SignUnlock';
 
@@ -61,6 +61,8 @@ async function handler(body, event, context, log) {
           DB_TIMEOUT_MS,
           'jieqian-unlock:idem-query'
         );
+        // 幂等命中：unlocked:true 语义是「该 token 已记账」，不代表调用者已解锁
+        // （跨用户重放时调用者 query 仍为 false；客户端不消费此值，fire-and-forget）
         if (existing && existing.length > 0) {
           log.info('[jieqian-unlock] duplicate purchaseToken, skip uid=' + uid);
           return success({ unlocked: true }, 'duplicate ignored');
