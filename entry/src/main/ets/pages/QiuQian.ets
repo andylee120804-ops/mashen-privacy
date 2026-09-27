@@ -957,7 +957,12 @@ export struct QiuQianPage {
 
   /** 未解锁时静默恢复权益（重装/换机/上次云端未记）：打开详情即自动解锁 */
   private tryRestoreUnlock(): void {
-    if (this.qiuVM.isUnlocked() || this.restoreCheckDone) {
+    if (this.qiuVM.isUnlocked()) {
+      // VM 已解锁但页面快照可能未同步（initialize/EntryAbility 恢复晚于 aboutToAppear）：补同步
+      this.unlocked = true
+      return
+    }
+    if (this.restoreCheckDone) {
       return
     }
     this.restoreCheckDone = true
