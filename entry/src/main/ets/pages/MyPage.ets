@@ -60,7 +60,7 @@ export struct MyPage {
     this.tabCount = n
   }
 
-  /** 打开供奉台（IAP 打赏弹窗）。惰性创建，与祈福结算页同款 */
+  /** 打开供奉台（免费仪式弹窗）。惰性创建，与祈福结算页同款 */
   private openTipDialog(): void {
     if (this.tipDialogController === null) {
       this.tipDialogController = new CustomDialogController({
@@ -114,8 +114,8 @@ export struct MyPage {
             })
               .margin({ top: 4, bottom: 12 })
 
-            // 供奉打赏（IAP 供奉台，与祈福结算页同款弹窗）
-            this.MenuItem('🧧', '供奉打赏', '', false, (): void => { this.openTipDialog() })
+            // 供奉（免费仪式弹窗，与祈福结算页同款；供奉打赏已随审核整改移除）
+            this.MenuItem('🧧', '诚心供奉', '', false, (): void => { this.openTipDialog() })
 
             // 成就入口
             this.MenuItem('🏅', '成就徽章', this.getUnlockedBadgeText(), false, (): void => { this.currentSection = 'achievement' })
