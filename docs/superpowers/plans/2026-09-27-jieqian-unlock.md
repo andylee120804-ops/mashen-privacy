@@ -1139,7 +1139,7 @@ git commit -m "refactor(ui): TipModal 重做为免费供奉仪式（移除全部
 import { BusinessError } from '@kit.BasicServicesKit'
 import { common } from '@kit.AbilityKit'
 import { IapPaymentService } from '../service/IapPaymentService'
-import { PaymentError, PaymentErrorKind, UnlockPurchaseResult } from '../service/IPaymentService'
+import { PaymentError, PaymentErrorKind, UnlockPurchaseResult, UNLOCK_PRODUCT } from '../service/IPaymentService'
 import { CloudService } from '../service/CloudService'
 ```
 （`pasteboard` 已从 `@kit.BasicServicesKit` 导入，把 BusinessError 并入同一行即可：`import { pasteboard, BusinessError } from '@kit.BasicServicesKit'`）
@@ -1196,7 +1196,7 @@ import { CloudService } from '../service/CloudService'
               .fontSize(15)
               .fontWeight(FontWeight.Bold)
               .fontColor('rgba(253, 246, 227, 0.85)')
-            Text('¥0.9 买断 · 一次解锁永久畅看')
+            Text(`¥${UNLOCK_PRODUCT.amount} 买断 · 一次解锁永久畅看`)
               .fontSize(11)
               .fontColor('rgba(253, 246, 227, 0.5)')
               .margin({ top: 4 })
@@ -1302,7 +1302,7 @@ import { CloudService } from '../service/CloudService'
       }
       // ② 买断
       const result: UnlockPurchaseResult = await iap.purchase()
-      if (!result.success) {
+      if (result.canceled) {
         return  // 用户取消：静默
       }
       await this.applyUnlock(result)

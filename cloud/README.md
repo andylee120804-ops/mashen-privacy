@@ -1,6 +1,6 @@
 # 麻神祈福 - AGC 云函数
 
-5 个云函数 + 共享库，为排行榜、心愿墙、牌局记录云备份与供奉打赏（IAP）提供后端。
+6 个云函数 + 共享库，为排行榜、心愿墙、牌局记录云备份与解签买断（IAP）提供后端。
 
 ## 目录结构
 
@@ -21,10 +21,14 @@ cloud/
 ├── game-record-backup/      # 牌局记录云备份 pull/push（仅本人）
 │   ├── handler.js
 │   └── package.json
-├── donation-record/         # 供奉打赏记录 record（幂等记账）/ query（累计功德）
+├── donation-record/         # 供奉打赏记录（已停止调用，客户端不再使用；保留不下架）
 │   ├── handler.js
 │   ├── package.json
 │   └── smoke.cjs            # 冒烟测试：node cloud/donation-record/smoke.cjs
+├── jieqian-unlock/          # 解签买断 record（幂等记账）/ query（解锁状态）
+│   ├── handler.js
+│   ├── package.json
+│   └── smoke.cjs            # 冒烟测试：node cloud/jieqian-unlock/smoke.cjs
 ├── deploy.cjs               # 打包脚本
 └── agc-credential.json      # ⬅ 部署时手动放置（API Client 凭证，见下）
 ```
@@ -120,6 +124,26 @@ cloud/
 > 云函数中转读写，不直连 Cloud DB。`cleanup-cloud-db.cjs` **不清这两张表**
 > ——Donation 是真实交易流水，删除不可恢复；测试期 `__uid: "test123"` 产生
 > 的测试数据需在 Cloud DB 控制台按 uid 定点删。
+> ⚠️ **打赏已随审核整改移除（2026-09-27）**：客户端不再调用 `donation-record`，
+> 两表与函数保留不下架（避免误伤历史数据），仅停止调用。
+
+### SignUnlock 对象类型（解签买断流水，IAP 非消耗型）
+
+| 字段 | 类型 | 主键 | 说明 |
+|------|------|------|------|
+| id | String | ✅ | purchaseOrderId |
+| uid | String | | 设备匿名 ID（__uid） |
+| productId | String | | jieqian_unlock（服务端白名单校验，仅此值可记账） |
+| purchaseToken | String | | **幂等去重键**（重复 record 不双记） |
+| purchaseData | String | | 华为签名原文存证（未来 verify 用） |
+| createdAt | String | | 记账时间（ISO） |
+
+**索引（必须在控制台建，否则 record 幂等/query 查询报错）**：
+`purchaseToken ASC`、`uid ASC`。
+
+**权限**：私有数据，同 Donation（World/Authenticated 无权限，
+Creator Read+Upsert，Administrator 全权限），客户端只经 `jieqian-unlock`
+云函数中转，不直连 Cloud DB。
 
 ## 部署步骤
 
@@ -142,7 +166,7 @@ cloud/
 
 3. **打包**：
    ```bash
-   node cloud/deploy.cjs          # 打包全部 5 个
+   node cloud/deploy.cjs          # 打包全部 6 个
    # 或：node cloud/deploy.cjs update-prayer-count
    ```
    （`smoke*.cjs` 冒烟测试脚本会自动排除，不进部署包。）
@@ -168,6 +192,9 @@ cloud/
      `cloud/agc-clouddb-object-types-donation.json` 导入——只含这两张新表，
      **已有表零接触**；若控制台不支持导入，按上表手动建（字段名/类型务必一致，
      否则 upsert 静默失败）。
+   - **新增 SignUnlock 表（解签买断，2026-09-27）**：用独立文件
+     `cloud/agc-clouddb-object-types-jieqian-unlock.json` 导入——只含这一张新表，
+     已有表零接触。
 
    ⚠️ 手建 Donation 时**必须一并建索引**
    `uid ASC` / `purchaseToken ASC` / `createdAt DESC`——`donation-record` 的幂等
@@ -188,6 +215,7 @@ cloud/
    | GameBackup | —（无权限） | —（无权限） | Read, Upsert | Read, Upsert, Delete |
    | Donation | —（无权限） | —（无权限） | Read, Upsert | Read, Upsert, Delete |
    | UserMerit | —（无权限） | —（无权限） | Read, Upsert | Read, Upsert, Delete |
+   | SignUnlock | —（无权限） | —（无权限） | Read, Upsert | Read, Upsert, Delete |
 
    - World/Authenticated 只读：排行榜、心愿墙是公开展示内容，读对所有人开放。
    - GameBackup 是**私有数据**（仅本人可见），World/Authenticated 权限为空、
@@ -199,19 +227,20 @@ cloud/
    - 客户端不直连 Cloud DB（`CloudService.ets` 只用 `cloudFunction.call` 中转），
      故 World/Authenticated/Creator 实际不会被触发，设保守值即可，主要供审核看数据安全。
 
-6. **部署云函数**：AGC 控制台 → 构建 → 云函数 → 创建函数，依次上传 5 个 zip。
+6. **部署云函数**：AGC 控制台 → 构建 → 云函数 → 创建函数，依次上传 6 个 zip。
    每个 zip 已含 `handler.js`（导出 `myHandler`）+ `shared/` + `node_modules/`
    （含 `@hw-agconnect/cloud-server`）+ `agc-credential.json`，正斜杠路径，可直接上传。
 
-   **5 个函数的对应关系**（函数名必须与客户端 `cloudFunction.call({ name })` 逐字一致）：
+   **6 个函数的对应关系**（函数名必须与客户端 `cloudFunction.call({ name })` 逐字一致）：
 
    | 上传的 zip | 控制台函数名 | 客户端调用 | 作用 |
    |-----------|-------------|-----------|------|
-   | `cloud/update-prayer-count/update-prayer-count.zip` | `update-prayer-count` | [CloudService.ets:57](../entry/src/main/ets/service/CloudService.ets#L57) | 祈福后上报次数 |
-   | `cloud/get-leaderboard/get-leaderboard.zip` | `get-leaderboard` | [CloudService.ets:77](../entry/src/main/ets/service/CloudService.ets#L77) | 查日/周/总榜 + 今日香火人数 |
-   | `cloud/wish-wall/wish-wall.zip` | `wish-wall` | [CloudService.ets:124](../entry/src/main/ets/service/CloudService.ets#L124) | 心愿墙列表/发布/还愿 |
-   | `cloud/game-record-backup/game-record-backup.zip` | `game-record-backup` | [CloudService.ets:210](../entry/src/main/ets/service/CloudService.ets#L210) | 牌局记录拉取/推送备份 |
-   | `cloud/donation-record/donation-record.zip` | `donation-record` | [CloudService.ets:278](../entry/src/main/ets/service/CloudService.ets#L278) | 打赏记账（purchaseToken 幂等）/ 查累计功德 |
+   | `cloud/update-prayer-count/update-prayer-count.zip` | `update-prayer-count` | [CloudService.ets:74](../entry/src/main/ets/service/CloudService.ets#L74) | 祈福后上报次数 |
+   | `cloud/get-leaderboard/get-leaderboard.zip` | `get-leaderboard` | [CloudService.ets:94](../entry/src/main/ets/service/CloudService.ets#L94) | 查日/周/总榜 + 今日香火人数 |
+   | `cloud/wish-wall/wish-wall.zip` | `wish-wall` | [CloudService.ets:140](../entry/src/main/ets/service/CloudService.ets#L140) | 心愿墙列表/发布/还愿 |
+   | `cloud/game-record-backup/game-record-backup.zip` | `game-record-backup` | [CloudService.ets:230](../entry/src/main/ets/service/CloudService.ets#L230) | 牌局记录拉取/推送备份 |
+   | `cloud/jieqian-unlock/jieqian-unlock.zip` | `jieqian-unlock` | [CloudService.ets:295](../entry/src/main/ets/service/CloudService.ets#L295)（record）/ [317](../entry/src/main/ets/service/CloudService.ets#L317)（query） | 解签买断记账（purchaseToken 幂等）/ 查解锁状态 |
+   | `cloud/donation-record/donation-record.zip` | `donation-record` | —（已停止调用，保留不下架） | 打赏记账（purchaseToken 幂等）/ 查累计功德 |
 
    **每个函数的创建参数**：
    - 函数名：照上表填（kebab-case，小写连字符）
@@ -250,6 +279,14 @@ cloud/
      `{ "action": "query", "__uid": "test123" }` 应返回 `{ "totalAmount": 6, "totalCount": 1 }`。
      ⚠️ 测完在 Cloud DB 控制台定点删 `uid=test123` 的 Donation/UserMerit 记录
      （cleanup 脚本不清这两张表，防误删真实打赏）。
+   - `jieqian-unlock` 测试入参（record）：
+     `{ "action": "record", "__uid": "test123", "productId": "jieqian_unlock", "purchaseToken": "test_unlock_tok_1", "purchaseData": "{}", "orderId": "test_unlock_1" }`
+     期望返回：`{ "code": 0, "data": { "unlocked": true } }`，且 Cloud DB
+     `SignUnlock` 表多一条 `id=test_unlock_1`。
+     **再传一遍完全相同的入参**（幂等验证）：仍返回 `{ "unlocked": true }`，
+     `SignUnlock` 表仍只有一条——不双记。再测 query：
+     `{ "action": "query", "__uid": "test123" }` 应返回 `{ "unlocked": true }`。
+     ⚠️ 测完在 Cloud DB 控制台定点删 `uid=test123` 的 SignUnlock 记录。
    - 报 401 `client token auth failed` → 凭证问题（见下「凭证说明」）。
    - 报 `3037003 primary key missing` → 对象类型未导入或字段名不符。
    - 报 `2002037 CloudDBZone does not exist` → 存储区 `Mashen` 没建（见步骤 4）。
