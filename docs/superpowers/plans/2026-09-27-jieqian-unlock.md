@@ -563,7 +563,7 @@ export interface IUnlockService {
   purchase(): Promise<UnlockPurchaseResult>
 
   /**
-   * 权益恢复：queryPurchases(NONCONSUMABLE, FINISHED) 查已购订单。
+   * 权益恢复：queryPurchases(NONCONSUMABLE, CURRENT_ENTITLEMENT) 查已购订单。
    * 重装/换机/离线恢复走此路径（华为帐号权益）。返回已购订单
    * （含 purchaseToken 供云端幂等补记）；未购/查询失败返回 null。
    */
@@ -600,7 +600,7 @@ git commit -m "refactor(iap): IPaymentService 从 5 档打赏改为解签买断�
 // API 事实（本机 SDK @hms.core.iap.d.ts 实测核对）：
 //  - createPurchase(context, { productId, productType: NONCONSUMABLE, developerPayload })
 //    → CreatePurchaseResult.purchaseData（JWS，payload 才含 productId/purchaseToken/purchaseOrderId）
-//  - queryPurchases(context, { productType: NONCONSUMABLE, queryType: FINISHED })
+//  - queryPurchases(context, { productType: NONCONSUMABLE, queryType: CURRENT_ENTITLEMENT })
 //    → 已购商品列表（权益恢复；非消耗型无需 finishPurchase）
 //  - queryEnvironmentStatus(context)：未登录抛 1001860050，地区不支持 1001860054
 // 时序：支付成功 → 本地置解锁标志（立即生效）→ 云端 record（异步幂等）；
@@ -767,13 +767,13 @@ export class IapPaymentService implements IUnlockService {
   }
 
   async restoreOwned(): Promise<UnlockPurchaseResult | null> {
-    // 权益恢复：queryPurchases FINISHED 拉已购非消耗型商品（华为帐号权益，
+    // 权益恢复：queryPurchases CURRENT_ENTITLEMENT 拉已购非消耗型商品（华为帐号权益，
     // 重装/换机可恢复）。未登录华为帐号会抛错——记日志返回 null（下次再试）。
     let list: string[]
     try {
       const result = await iap.queryPurchases(this.context, {
         productType: iap.ProductType.NONCONSUMABLE,
-        queryType: iap.PurchaseQueryType.FINISHED
+        queryType: iap.PurchaseQueryType.CURRENT_ENTITLEMENT  // 每商品最新已拥有订单（SDK 实测无 FINISHED，语义即权益恢复）
       })
       list = result.purchaseDataList || []
     } catch (err) {

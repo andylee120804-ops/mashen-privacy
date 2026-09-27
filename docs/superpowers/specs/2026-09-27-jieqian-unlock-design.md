@@ -61,7 +61,7 @@ export interface IUnlockService {
 
 - `purchase()`：`createPurchase({ productId: UNLOCK_PRODUCT.productId, productType: NONCONSUMABLE, developerPayload: getDeviceUid() })`；取消 1001860000 静默返回 canceled；1001860007 商品未发布 → PRODUCT 错误；解析 purchaseData 逻辑（JWS 载荷）原样复用
 - **删除**：`finishPurchase`、`completePendingOrders`、`amountOf`（白名单金额表）、CONSUMABLE 相关分支
-- **新增** `isOwned()`：`queryPurchases({ productType: NONCONSUMABLE, queryType: FINISHED })` → purchaseDataList 非空即已购（华为帐号权益，换机/重装可恢复）
+- **新增** `isOwned()`：`queryPurchases({ productType: NONCONSUMABLE, queryType: CURRENT_ENTITLEMENT })` → purchaseDataList 非空即已购（华为帐号权益，换机/重装可恢复）。注：本机 SDK `PurchaseQueryType` 实测为 `ALL=0 / UNFINISHED=1 / CURRENT_ENTITLEMENT=2`，无 `FINISHED`；CURRENT_ENTITLEMENT（每商品最新已拥有订单）即权益恢复语义
 
 ## 4. 解签付费锁（QiuQian.ets）
 
@@ -133,7 +133,7 @@ export interface IUnlockService {
 ```
 支付成功 → 本地置位（立即生效，UI 即刻解锁）
         → 云端 record（幂等；失败仅记日志，权益不受影响）
-启动/重装/换机 → isOwned() = queryPurchases(FINISHED) 非空
+启动/重装/换机 → isOwned() = queryPurchases(CURRENT_ENTITLEMENT) 非空
         → 置本地标志 + 云端幂等补记
 ```
 

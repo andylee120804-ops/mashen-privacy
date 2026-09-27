@@ -59,7 +59,7 @@ export interface IUnlockService {
   purchase(): Promise<UnlockPurchaseResult>
 
   /**
-   * 权益恢复：queryPurchases(NONCONSUMABLE, FINISHED) 查已购订单。
+   * 权益恢复：queryPurchases(NONCONSUMABLE, CURRENT_ENTITLEMENT) 查已购订单。
    * 重装/换机/离线恢复走此路径（华为帐号权益）。返回已购订单
    * （含 purchaseToken 供云端幂等补记）；未购/查询失败返回 null。
    */
