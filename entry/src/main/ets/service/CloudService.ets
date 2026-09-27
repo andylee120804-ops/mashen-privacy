@@ -6,7 +6,7 @@
 // 注意：ArkTS 不允许在 static 方法中使用 this（arkts-no-standalone-this），
 // 故 getUserId/getNickname/parseEnvelope 为模块级函数，static 方法直接调用。
 import { cloudFunction } from '@kit.CloudFoundationKit'
-import { LeaderboardEntry, LeaderboardType, Wish, GameRecord } from '../model/EnrichTypes'
+import { LeaderboardEntry, LeaderboardType, Wish, GameRecord, DonationParams, MeritInfo } from '../model/EnrichTypes'
 
 /** 云函数统一返回信封 */
 interface CloudEnvelope {
@@ -41,12 +41,24 @@ function getNickname(): string {
   }
 }
 
-/** 把 FunctionResult.result(string | Object) 安全转为 CloudEnvelope */
+/** 把 FunctionResult.result(string | Object) 安全转为 CloudEnvelope。
+ *  AGC 运行时会话返回「对象」或「JSON 字符串」两种形态，两种都解析；
+ *  解析失败返回 null（调用方按云调用失败处理）。 */
 function parseEnvelope(raw: string | Object): CloudEnvelope | null {
-  if (typeof raw !== 'object' || raw === null) {
+  let obj: Object | null = null
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw) as Object
+    } catch {
+      return null
+    }
+  } else if (raw !== null) {
+    obj = raw
+  }
+  if (obj === null || typeof obj !== 'object') {
     return null
   }
-  return raw as CloudEnvelope
+  return obj as CloudEnvelope
 }
 
 export class CloudService {
@@ -266,6 +278,66 @@ export class CloudService {
     } catch (err) {
       console.error('[CloudService] deleteGameRecordBackup failed:', JSON.stringify(err))
       return false
+    }
+  }
+
+  /**
+   * 上报打赏流水（IAP 支付成功后调用）。
+   * 云端按 purchaseToken 幂等去重，重复上报不双记。
+   * 成功返回最新累计功德；失败返回 null——调用方（IapPaymentService）
+   * 必须在上报成功后才 finishPurchase，失败则留待启动补单。
+   */
+  static async recordDonation(params: DonationParams): Promise<MeritInfo | null> {
+    try {
+      const result = await cloudFunction.call({
+        name: 'donation-record',
+        data: {
+          action: 'record',
+          productId: params.productId,
+          amount: params.amount,
+          purchaseToken: params.purchaseToken,
+          purchaseData: params.purchaseData,
+          orderId: params.orderId,
+          __uid: getUserId()
+        }
+      })
+      const env: CloudEnvelope | null = parseEnvelope(result.result)
+      if (env !== null && env.code === 0 && env.data !== null) {
+        return env.data as MeritInfo
+      }
+      // 诊断：真机上 result.result 可能是 JSON 字符串（parseEnvelope 已兼容），
+      // 仍失败则打印原始形态与内容，便于定位云端返回异常
+      const rawText: string = typeof result.result === 'string'
+        ? (result.result as string)
+        : JSON.stringify(result.result)
+      console.error('[CloudService] recordDonation cloud error: env=' + (env ? env.code + '/' + env.message : 'null')
+        + ' raw=' + (rawText ? rawText.substring(0, 300) : '(empty)'))
+      return null
+    } catch (err) {
+      console.error('[CloudService] recordDonation failed:', JSON.stringify(err))
+      return null
+    }
+  }
+
+  /** 拉取我的累计功德（供奉弹窗「我的累计功德」显示区）。失败返回 null，由调用方走本地缓存兜底 */
+  static async getMyMerit(): Promise<MeritInfo | null> {
+    try {
+      const result = await cloudFunction.call({
+        name: 'donation-record',
+        data: {
+          action: 'query',
+          __uid: getUserId()
+        }
+      })
+      const env: CloudEnvelope | null = parseEnvelope(result.result)
+      if (env !== null && env.code === 0 && env.data !== null) {
+        return env.data as MeritInfo
+      }
+      console.error('[CloudService] getMyMerit cloud error: ' + (env ? env.message : 'bad format'))
+      return null
+    } catch (err) {
+      console.error('[CloudService] getMyMerit failed:', JSON.stringify(err))
+      return null
     }
   }
 }

@@ -161,3 +161,19 @@ createPurchase 成功 → 解析 purchaseData
 - 解锁判定 `entitle`（接口留位，逻辑以后加）
 - 服务端票据校验 `verify`（purchaseData 已存证，上线解锁前必须补）
 - 自定义金额（IAP 无此能力，固定档位）
+
+## 11. v1 实施备注（2026-09-20）
+
+- **本地 purchaseData Preferences 缓存（第 5 节「缓存本地兜底」）未实现**：
+  华为侧 `queryPurchases` 是未完成订单的权威来源，本地缓存属冗余保险，跳过。
+- **Account Kit 引导登录改系统设置指引**：第 2 节记录的
+  `authentication.executeAuthorizationRequest(context, [{ action: AuthenticationAction.SIGN_IN }])`
+  在本机 SDK（`@hms.core.authentication.d.ts`）**不存在**（当时未核实签名）。
+  v1 改为 toast 指引「系统设置中登录华为帐号」；v2 若接 `LoginWithHuaweiIDRequest`
+  （forceLogin）需先开通 AGC 华为帐号服务。
+- **`queryProducts` 拉真实价格未接入**：客户端金额走「AGC 控制台 / 云端白名单 /
+  客户端静态表」三方一致口径；改价需同步两处（残余风险：改价漂移时卡片价与
+  收银台价可能不一致）。v2 用 queryProducts 展示真实价。
+- **developerPayload 已传 uid**：随订单签名进 purchaseData，为 verify 留锚点。
+- **云函数幂等实现升级**：累计功德改为「从 Donation 流水重算」（非 read-modify-write），
+  中断/重试自愈，天然无并发双计。

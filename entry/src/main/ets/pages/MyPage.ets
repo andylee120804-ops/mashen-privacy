@@ -12,6 +12,7 @@ import { EntryConfigVM, EntryItem } from '../viewmodels/EntryConfigVM'
 import { GameRecordCard } from '../components/GameRecordCard'
 import { AchievementGrid } from '../components/AchievementGrid'
 import { PrivacyDialog } from '../components/PrivacyDialog'
+import { TipModal } from '../components/TipModal'
 import { Achievement } from '../model/EnrichTypes'
 
 @Component
@@ -25,6 +26,8 @@ export struct MyPage {
   @State offRows: EntryItem[] = []     // 未开启为 Tab 的入口（按用户 order）
   @State tabCount: number = 0          // 已开启 Tab 数
   private privacyDialogController: CustomDialogController | null = null
+  // 惰性创建供奉弹窗控制器：避免页面入场时提前构建 TipModal 子树，降低点击时延
+  private tipDialogController: CustomDialogController | null = null
 
   aboutToAppear(): void {
     this.syncAll()
@@ -55,6 +58,19 @@ export struct MyPage {
       }
     }
     this.tabCount = n
+  }
+
+  /** 打开供奉台（IAP 打赏弹窗）。惰性创建，与祈福结算页同款 */
+  private openTipDialog(): void {
+    if (this.tipDialogController === null) {
+      this.tipDialogController = new CustomDialogController({
+        builder: TipModal({}),
+        autoCancel: true,
+        alignment: DialogAlignment.Center,
+        customStyle: true
+      })
+    }
+    this.tipDialogController.open()
   }
 
   /** 复阅隐私政策（首次同意后仍可随时查看；只读模式，不提供退出应用） */
@@ -97,6 +113,9 @@ export struct MyPage {
               }
             })
               .margin({ top: 4, bottom: 12 })
+
+            // 供奉打赏（IAP 供奉台，与祈福结算页同款弹窗）
+            this.MenuItem('🧧', '供奉打赏', '', false, (): void => { this.openTipDialog() })
 
             // 成就入口
             this.MenuItem('🏅', '成就徽章', this.getUnlockedBadgeText(), false, (): void => { this.currentSection = 'achievement' })

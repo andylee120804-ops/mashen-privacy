@@ -1,0 +1,9 @@
+{
+  "name": "donation-record",
+  "version": "1.0.0",
+  "description": "供奉打赏记录：record（幂等记账）/ query（累计功德）",
+  "main": "handler.js",
+  "dependencies": {
+    "@hw-agconnect/cloud-server": "^1.0.5"
+  }
+}

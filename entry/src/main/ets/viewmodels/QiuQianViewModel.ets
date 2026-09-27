@@ -107,6 +107,8 @@ export class QiuQianViewModel {
     }
     try {
       await this.dataPrefs.put(KEY_RECORDS, JSON.stringify(this.records))
+      // 必须 flush 才落盘：进程被杀死时未 flush 的内存数据会丢失（历史记录消失）
+      await this.dataPrefs.flush()
     } catch (err) {
       console.error('[QiuQianVM] save records failed:', JSON.stringify(err))
     }
@@ -118,6 +120,7 @@ export class QiuQianViewModel {
     }
     try {
       await this.dataPrefs.put(KEY_DAILY, JSON.stringify(this.daily))
+      await this.dataPrefs.flush()
     } catch (err) {
       console.error('[QiuQianVM] save daily failed:', JSON.stringify(err))
     }

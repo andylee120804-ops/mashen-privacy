@@ -1,11 +1,82 @@
 {
   "app": {
-    "compileSdkVersion": 12,
-    "compatibleSdkVersion": 12,
     "products": [
       {
         "name": "default",
-        "signingConfig": "default"
+        "signingConfig": "default",
+        "targetSdkVersion": "6.1.0(23)",
+        "compatibleSdkVersion": "5.0.0(12)",
+        "runtimeOS": "HarmonyOS"
+      },
+      {
+        "name": "release",
+        "signingConfig": "releasekey",
+        "targetSdkVersion": "6.1.0(23)",
+        "compatibleSdkVersion": "5.0.0(12)",
+        "runtimeOS": "HarmonyOS"
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\Andy\\.ohos\\config\\default_mashen-app_ftOh0n8rw15g_iVP1DCgRhHEpMpXR5C5vdQxyAuKKeA=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001BB05E602383A7288A27CCE136AC18787236200F28420365A3D6B299360A98537F61C5A9BC4D89B0",
+          "profile": "C:\\Users\\Andy\\.ohos\\config\\default_mashen-app_ftOh0n8rw15g_iVP1DCgRhHEpMpXR5C5vdQxyAuKKeA=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\Andy\\.ohos\\config\\default_mashen-app_ftOh0n8rw15g_iVP1DCgRhHEpMpXR5C5vdQxyAuKKeA=.p12",
+          "storePassword": "0000001BF874FF3BB4E136876D72C327CD7F4CC013FC99B2EFE00971ED71253DA25E2496443AA2A957F10B"
+        }
+      },
+      {
+        "name": "releasekey",
+        "type": "HarmonyOS",
+        "material": {
+          "storeFile": "C:/Users/Andy/.ohos/config/mashen.p12",
+          "storePassword": "0000001B6389F8FDEA4ED2178CD6BD06A35D5C4E7CEB51415BEA6DBA477F941C814C662B5BD40EBBA77DA7",
+          "keyAlias": "mashen",
+          "keyPassword": "0000001B6389F8FDEA4ED2178CD6BD06A35D5C4E7CEB51415BEA6DBA477F941C814C662B5BD40EBBA77DA7",
+          "signAlg": "SHA256withECDSA",
+          "profile": "C:/Users/Andy/.ohos/config/mashenRelease.p7b",
+          "certpath": "C:/Users/Andy/.ohos/config/mashen.cer"
+        }
+      }
+    ],
+    "capabilities": [
+      {
+        "bundleName": "luck.happy.huawei",
+        "config": [
+          {
+            "name": "webAccessServiceForAIQA",
+            "capability": "webAccessServiceForAIQA"
+          },
+          {
+            "name": "Push Kit",
+            "capability": "com.huawei.service.push.base_service"
+          },
+          {
+            "name": "Device status detection",
+            "capability": "com.huawei.service.device_security.device_verify"
+          },
+          {
+            "name": "Map Kit",
+            "capability": "com.huawei.service.mapkit"
+          },
+          {
+            "name": "Safety Detect",
+            "capability": "com.huawei.service.device_security.safety_detect"
+          }
+        ]
       }
     ]
   },
@@ -16,7 +87,10 @@
       "targets": [
         {
           "name": "default",
-          "applyToProducts": ["default"]
+          "applyToProducts": [
+            "default",
+            "release"
+          ]
         }
       ]
     }

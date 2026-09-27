@@ -54,6 +54,21 @@ export interface Wish {
   fulfilledAt: string
 }
 
+/** 打赏上报参数（IAP 支付成功后传给 CloudService.recordDonation） */
+export interface DonationParams {
+  productId: string       // AGC 商品 ID（tip_06 等）
+  amount: number           // 本地记录的金额（云端以商品白名单为准）
+  purchaseToken: string   // 幂等去重键
+  purchaseData: string     // 华为签名原文存证
+  orderId: string          // purchaseOrderId，Donation 主键
+}
+
+/** 累计功德 */
+export interface MeritInfo {
+  totalAmount: number
+  totalCount: number
+}
+
 /** 排行榜类型 */
 export enum LeaderboardType {
   DAILY = 'daily',

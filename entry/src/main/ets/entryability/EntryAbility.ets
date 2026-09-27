@@ -9,6 +9,7 @@ import { EntryConfigVM } from '../viewmodels/EntryConfigVM'
 import { FortuneViewModel } from '../viewmodels/FortuneViewModel'
 import { MuyuViewModel } from '../viewmodels/MuyuViewModel'
 import { QiuQianViewModel } from '../viewmodels/QiuQianViewModel'
+import { IapPaymentService } from '../service/IapPaymentService'
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
@@ -74,6 +75,14 @@ export default class EntryAbility extends UIAbility {
         // enrichVM 在 onCreate 前文已初始化；startCloudSync 幂等，离线时安全跳过。
         enrichVM.startCloudSync().catch((err: Object) => {
           console.error('EnrichViewModel startCloudSync failed:', JSON.stringify(err))
+        })
+
+        // IAP 防漏单补单：上次供奉若「已支付未消耗」（上报云端失败/进程被杀），
+        // 这里补「云端幂等记账 + finishPurchase」。deviceUserId 就绪后才有 __uid 可记账；
+        // 未登录华为帐号时 queryPurchases 会安全跳过，下次启动再补。
+        const iapService = new IapPaymentService(this.context)
+        iapService.completePendingOrders().catch((err: Object) => {
+          console.error('IapPaymentService completePendingOrders failed:', JSON.stringify(err))
         })
       })
     })

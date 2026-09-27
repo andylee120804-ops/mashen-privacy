@@ -1,6 +1,6 @@
 # 麻神祈福 - AGC 云函数
 
-4 个云函数 + 共享库，为排行榜、心愿墙与牌局记录云备份提供后端。
+5 个云函数 + 共享库，为排行榜、心愿墙、牌局记录云备份与供奉打赏（IAP）提供后端。
 
 ## 目录结构
 
@@ -21,6 +21,10 @@ cloud/
 ├── game-record-backup/      # 牌局记录云备份 pull/push（仅本人）
 │   ├── handler.js
 │   └── package.json
+├── donation-record/         # 供奉打赏记录 record（幂等记账）/ query（累计功德）
+│   ├── handler.js
+│   ├── package.json
+│   └── smoke.cjs            # 冒烟测试：node cloud/donation-record/smoke.cjs
 ├── deploy.cjs               # 打包脚本
 └── agc-credential.json      # ⬅ 部署时手动放置（API Client 凭证，见下）
 ```
@@ -86,6 +90,37 @@ cloud/
 > games 用 JSON 字符串承载（如 `[{"result":"+","magnitude":5}]`），
 > 避免依赖 Cloud DB 大 String 字段上限而把整份快照塞进单行。
 
+### Donation 对象类型（供奉打赏流水，IAP）
+
+| 字段 | 类型 | 主键 | 说明 |
+|------|------|------|------|
+| id | String | ✅ | purchaseOrderId（orderId 缺省时 d_时间戳_随机） |
+| uid | String | | 打赏者设备匿名 ID |
+| productId | String | | AGC 商品 ID（tip_06 / tip_6 / tip_18 / tip_66 / tip_88） |
+| amount | Double | | 金额（服务端商品白名单定价，不信任客户端传值） |
+| purchaseToken | String | | **幂等去重键**（补单/重试不双记） |
+| purchaseData | String | | 华为签名 purchaseData 存证。⚠️ 控制台字段容量实测 ~200~255 字符（255 报 3007007），完整 JWS（2500+）装不下，handler 截断到 200 字符存证；真正的校验键是 purchaseToken（未来 verify 走 token 调华为订单服务） |
+| status | String | | 默认 'done'，未来可为 'verified'/'revoked' |
+| createdAt | String | | 记账时间（ISO） |
+
+**索引（必须在控制台建，否则 record 幂等查询报错）**：
+`uid ASC`、`purchaseToken ASC`、`createdAt DESC`。
+
+### UserMerit 对象类型（累计功德）
+
+| 字段 | 类型 | 主键 | 说明 |
+|------|------|------|------|
+| uid | String | ✅ | 设备匿名 ID |
+| totalAmount | Double | | 累计打赏金额 |
+| totalCount | Integer | | 累计供奉次数 |
+| updatedAt | String | | 最后更新（ISO） |
+
+> 两表均为**私有数据**：权限同 GameBackup（World/Authenticated 无权限，
+> Creator Read+Upsert，Administrator 全权限），客户端只经 `donation-record`
+> 云函数中转读写，不直连 Cloud DB。`cleanup-cloud-db.cjs` **不清这两张表**
+> ——Donation 是真实交易流水，删除不可恢复；测试期 `__uid: "test123"` 产生
+> 的测试数据需在 Cloud DB 控制台按 uid 定点删。
+
 ## 部署步骤
 
 1. **准备凭证**：AGC 控制台 → 用户中心 → 凭证管理 → 创建 **API Client**，
@@ -107,9 +142,10 @@ cloud/
 
 3. **打包**：
    ```bash
-   node cloud/deploy.cjs          # 打包全部 3 个
+   node cloud/deploy.cjs          # 打包全部 5 个
    # 或：node cloud/deploy.cjs update-prayer-count
    ```
+   （`smoke*.cjs` 冒烟测试脚本会自动排除，不进部署包。）
    `deploy.cjs` 用 adm-zip 打正斜杠路径，并在写完 zip 后用 `patchUnixHostOS()`
    把中央目录头的 `hostOS` 从 Windows(10) patch 成 Unix(3)——否则 AGC Linux 运行时
    会忽略条目的 Unix 权限位，`handler.js` 以无权限解压，报
@@ -124,23 +160,34 @@ cloud/
      云函数查询会报 `2002037: CloudDBZone does not exist`。
    - 没建存储区只导入对象类型 = 对象类型存在但无处读写，仍报 2002037。
 
-5. **导入对象类型**：Cloud DB → 对象类型 → 「**导入对象类型**」，上传本仓库的
-   `cloud/agc-clouddb-object-types.json`（已按 AGC 真实导出格式编排：`schemaVersion`
-   + `objectTypes` + `permissions` 三段，字段与各 handler upsert 逐一核对，权限块避免
-   导入时报「权限为空」）。也可按上表手建，但务必保证字段名/类型与之一致，否则 upsert 静默失败。
+5. **导入对象类型**：Cloud DB → 对象类型 → 「**导入对象类型**」。
+   - **已上线 3 张表**（Leaderboard / Wish / GameBackup）：结构以
+     `cloud/agc-clouddb-object-types.json` 为准——该文件是线上结构的**零改动快照**，
+     已导入过就**不再重新导入、不做任何修改**。
+   - **新增 Donation / UserMerit 两表（IAP）**：用独立文件
+     `cloud/agc-clouddb-object-types-donation.json` 导入——只含这两张新表，
+     **已有表零接触**；若控制台不支持导入，按上表手动建（字段名/类型务必一致，
+     否则 upsert 静默失败）。
+
+   ⚠️ 手建 Donation 时**必须一并建索引**
+   `uid ASC` / `purchaseToken ASC` / `createdAt DESC`——`donation-record` 的幂等
+   查询按 purchaseToken 走索引，无索引查询直接报错。
 
    **导入报「权限为空」怎么办**：早期版本的 JSON 缺 `permissions` 块，AGC 控制台
    导入时会拦在「权限为空」。当前版本已补齐顶层 `permissions` 数组（每个对象类型 4 种
    role：World / Authenticated / Creator / Administrator，rights 为 Read / Upsert / Delete），
    直接导入即可，不再需要导入后手配权限。
 
-   **权限设计**（已写入 JSON，导入即生效）：
+   **权限设计**（已写入对应 JSON，导入即生效：前 3 张在主文件，Donation/UserMerit
+   在 `agc-clouddb-object-types-donation.json`）：
 
    | 对象类型 | World（所有用户） | Authenticated（已认证） | Creator（创建者） | Administrator（管理员/云函数） |
    |----------|-------------------|------------------------|-------------------|-------------------------------|
    | Leaderboard | Read | Read | Read, Upsert | Read, Upsert, Delete |
    | Wish | Read | Read | Read, Upsert, Delete | Read, Upsert, Delete |
    | GameBackup | —（无权限） | —（无权限） | Read, Upsert | Read, Upsert, Delete |
+   | Donation | —（无权限） | —（无权限） | Read, Upsert | Read, Upsert, Delete |
+   | UserMerit | —（无权限） | —（无权限） | Read, Upsert | Read, Upsert, Delete |
 
    - World/Authenticated 只读：排行榜、心愿墙是公开展示内容，读对所有人开放。
    - GameBackup 是**私有数据**（仅本人可见），World/Authenticated 权限为空、
@@ -152,11 +199,11 @@ cloud/
    - 客户端不直连 Cloud DB（`CloudService.ets` 只用 `cloudFunction.call` 中转），
      故 World/Authenticated/Creator 实际不会被触发，设保守值即可，主要供审核看数据安全。
 
-6. **部署云函数**：AGC 控制台 → 构建 → 云函数 → 创建函数，依次上传 4 个 zip。
+6. **部署云函数**：AGC 控制台 → 构建 → 云函数 → 创建函数，依次上传 5 个 zip。
    每个 zip 已含 `handler.js`（导出 `myHandler`）+ `shared/` + `node_modules/`
    （含 `@hw-agconnect/cloud-server`）+ `agc-credential.json`，正斜杠路径，可直接上传。
 
-   **4 个函数的对应关系**（函数名必须与客户端 `cloudFunction.call({ name })` 逐字一致）：
+   **5 个函数的对应关系**（函数名必须与客户端 `cloudFunction.call({ name })` 逐字一致）：
 
    | 上传的 zip | 控制台函数名 | 客户端调用 | 作用 |
    |-----------|-------------|-----------|------|
@@ -164,6 +211,7 @@ cloud/
    | `cloud/get-leaderboard/get-leaderboard.zip` | `get-leaderboard` | [CloudService.ets:77](../entry/src/main/ets/service/CloudService.ets#L77) | 查日/周/总榜 + 今日香火人数 |
    | `cloud/wish-wall/wish-wall.zip` | `wish-wall` | [CloudService.ets:124](../entry/src/main/ets/service/CloudService.ets#L124) | 心愿墙列表/发布/还愿 |
    | `cloud/game-record-backup/game-record-backup.zip` | `game-record-backup` | [CloudService.ets:210](../entry/src/main/ets/service/CloudService.ets#L210) | 牌局记录拉取/推送备份 |
+   | `cloud/donation-record/donation-record.zip` | `donation-record` | [CloudService.ets:278](../entry/src/main/ets/service/CloudService.ets#L278) | 打赏记账（purchaseToken 幂等）/ 查累计功德 |
 
    **每个函数的创建参数**：
    - 函数名：照上表填（kebab-case，小写连字符）
@@ -193,6 +241,15 @@ cloud/
      `{ "action": "push", "__uid": "test123", "records": [{ "date": "2026-09-08", "deityId": 1, "kowtowCount": 3, "games": [{ "result": "+", "magnitude": 5 }], "note": "测试" }] }`
      期望返回：`{ "code": 0, "data": { "pushed": 1 } }`；再测 pull：
      `{ "action": "pull", "__uid": "test123" }` 应返回该条记录。测完记得清库。
+   - `donation-record` 测试入参（record）：
+     `{ "action": "record", "__uid": "test123", "productId": "tip_6", "purchaseToken": "test_tok_1", "purchaseData": "{}", "orderId": "test_order_1" }`
+     期望返回：`{ "code": 0, "data": { "totalAmount": 6, "totalCount": 1 } }`，且 Cloud DB
+     `Donation` 表多一条 `id=test_order_1`、`UserMerit` 表多一条 `uid=test123`。
+     **再传一遍完全相同的入参**（幂等验证）：返回的 `totalAmount` 仍是 6、`totalCount` 仍是 1，
+     `Donation` 表仍只有一条——不双记。再测 query：
+     `{ "action": "query", "__uid": "test123" }` 应返回 `{ "totalAmount": 6, "totalCount": 1 }`。
+     ⚠️ 测完在 Cloud DB 控制台定点删 `uid=test123` 的 Donation/UserMerit 记录
+     （cleanup 脚本不清这两张表，防误删真实打赏）。
    - 报 401 `client token auth failed` → 凭证问题（见下「凭证说明」）。
    - 报 `3037003 primary key missing` → 对象类型未导入或字段名不符。
    - 报 `2002037 CloudDBZone does not exist` → 存储区 `Mashen` 没建（见步骤 4）。

@@ -1,7 +1,7 @@
 // cloud/deploy.cjs
 // 打包 AGC 云函数 ZIP（每个函数：复制 shared/ + 安装依赖 + 打 zip）。
 // 用法：node cloud/deploy.cjs [func-name...]
-//   node cloud/deploy.cjs                      # 打包全部 4 个函数
+//   node cloud/deploy.cjs                      # 打包全部 5 个函数
 //   node cloud/deploy.cjs update-prayer-count  # 只打包指定函数
 // 产物：cloud/<func>/<func>.zip，上传到 AGC 控制台云函数。
 // 注意：agc-credential.json 需手动放置到 cloud/ 根目录（API Client 凭证，见 README）。
@@ -14,7 +14,7 @@ const AdmZip = require('adm-zip');
 
 const CLOUD_DIR = __dirname;
 const SHARED_DIR = path.join(CLOUD_DIR, 'shared');
-const FUNCTIONS = ['update-prayer-count', 'get-leaderboard', 'wish-wall', 'game-record-backup'];
+const FUNCTIONS = ['update-prayer-count', 'get-leaderboard', 'wish-wall', 'game-record-backup', 'donation-record'];
 
 /** 递归收集目录下所有文件，返回正斜杠相对路径 */
 function collectFiles(rootDir) {
@@ -83,6 +83,8 @@ function packageFunction(name) {
   for (const f of files) {
     // 排除产物 zip 自身
     if (f.relPath === `${name}.zip`) continue;
+    // 排除本地冒烟测试脚本（不进部署包）
+    if (/^smoke[^/]*\.cjs$/.test(f.relPath)) continue;
     // adm-zip addLocalFile 用系统路径，但 entry 名会带反斜杠，故用 addFile 显式指定正斜杠名
     const data = fs.readFileSync(f.absPath);
     zip.addFile(f.relPath, data);

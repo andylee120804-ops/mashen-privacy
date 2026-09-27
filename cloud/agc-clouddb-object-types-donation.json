@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "objectTypes": [
+    {
+      "objectTypeName": "Donation",
+      "fields": [
+        {
+          "fieldName": "id",
+          "fieldType": "String",
+          "belongPrimaryKey": true,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false
+        },
+        {
+          "fieldName": "uid",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        },
+        {
+          "fieldName": "productId",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        },
+        {
+          "fieldName": "amount",
+          "fieldType": "Double",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": 0
+        },
+        {
+          "fieldName": "purchaseToken",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        },
+        {
+          "fieldName": "purchaseData",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        },
+        {
+          "fieldName": "status",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": "done"
+        },
+        {
+          "fieldName": "createdAt",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        }
+      ],
+      "indexes": [
+        {
+          "indexName": "uid",
+          "indexList": [
+            {
+              "fieldName": "uid",
+              "sortType": "ASC"
+            }
+          ]
+        },
+        {
+          "indexName": "purchaseToken",
+          "indexList": [
+            {
+              "fieldName": "purchaseToken",
+              "sortType": "ASC"
+            }
+          ]
+        },
+        {
+          "indexName": "createdAt",
+          "indexList": [
+            {
+              "fieldName": "createdAt",
+              "sortType": "DESC"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "objectTypeName": "UserMerit",
+      "fields": [
+        {
+          "fieldName": "uid",
+          "fieldType": "String",
+          "belongPrimaryKey": true,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false
+        },
+        {
+          "fieldName": "totalAmount",
+          "fieldType": "Double",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": 0
+        },
+        {
+          "fieldName": "totalCount",
+          "fieldType": "Integer",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": 0
+        },
+        {
+          "fieldName": "updatedAt",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
+        }
+      ],
+      "indexes": []
+    }
+  ],
+  "permissions": [
+    {
+      "objectTypeName": "Donation",
+      "permissions": [
+        { "role": "World", "rights": [] },
+        { "role": "Authenticated", "rights": [] },
+        { "role": "Creator", "rights": ["Read", "Upsert"] },
+        { "role": "Administrator", "rights": ["Read", "Upsert", "Delete"] }
+      ]
+    },
+    {
+      "objectTypeName": "UserMerit",
+      "permissions": [
+        { "role": "World", "rights": [] },
+        { "role": "Authenticated", "rights": [] },
+        { "role": "Creator", "rights": ["Read", "Upsert"] },
+        { "role": "Administrator", "rights": ["Read", "Upsert", "Delete"] }
+      ]
+    }
+  ]
+}
