@@ -392,7 +392,7 @@ Run:
 ```bash
 node cloud/jieqian-unlock/smoke.cjs
 ```
-Expected: 全部 ✓，`24/24 通过`，退出码 0。
+Expected: 全部 ✓，`20/20 通过`，退出码 0。
 
 - [ ] **Step 6: Commit**
 
@@ -429,7 +429,7 @@ Expected: `✓ 产出 cloud/jieqian-unlock/jieqian-unlock.zip（…条 hostOS→
 
 - [ ] **Step 3: 再跑一次冒烟（打包复制 shared 后不得破坏逻辑）**
 
-Run: `node cloud/jieqian-unlock/smoke.cjs` → Expected: `24/24 通过`
+Run: `node cloud/jieqian-unlock/smoke.cjs` → Expected: `20/20 通过`
 
 - [ ] **Step 4: Commit**
 
@@ -1467,7 +1467,7 @@ git commit -m "refactor(ui): 我的页供奉菜单改「诚心供奉」（免费
 
 - [ ] **Step 1: 冒烟测试回归**（云函数逻辑不受客户端改动影响，仍应全绿）
 
-Run: `node cloud/jieqian-unlock/smoke.cjs` → Expected: `24/24 通过`
+Run: `node cloud/jieqian-unlock/smoke.cjs` → Expected: `20/20 通过`
 
 - [ ] **Step 2: 打包验证**
 
