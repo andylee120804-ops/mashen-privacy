@@ -54,19 +54,12 @@ export interface Wish {
   fulfilledAt: string
 }
 
-/** 打赏上报参数（IAP 支付成功后传给 CloudService.recordDonation） */
-export interface DonationParams {
-  productId: string       // AGC 商品 ID（tip_06 等）
-  amount: number           // 本地记录的金额（云端以商品白名单为准）
+/** 解签买断上报参数（IAP 支付成功后传给 CloudService.recordSignUnlock） */
+export interface SignUnlockParams {
+  productId: string       // AGC 商品 ID（jieqian_unlock，与服务端白名单一致）
   purchaseToken: string   // 幂等去重键
   purchaseData: string     // 华为签名原文存证
-  orderId: string          // purchaseOrderId，Donation 主键
-}
-
-/** 累计功德 */
-export interface MeritInfo {
-  totalAmount: number
-  totalCount: number
+  orderId: string          // purchaseOrderId，SignUnlock 主键
 }
 
 /** 排行榜类型 */
