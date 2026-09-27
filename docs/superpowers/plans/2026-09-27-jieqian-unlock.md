@@ -1483,7 +1483,13 @@ node hvigorw.js --mode module -p product=default -p buildMode=debug --no-daemon 
 ```
 Expected: `BUILD SUCCESSFUL`，产物 `entry/build/default/outputs/default/entry-default-signed.hap`
 
-- [ ] **Step 4: 全仓残留检查**（不得有打赏/功德/供奉付款残留）
+- [ ] **Step 4: 更新 cloud/README.md 部署 runbook**（Task 2 质量评审发现：README 仍写「5 个云函数」，权威函数对照表缺 jieqian-unlock；任务 3-11 已改完，本次一并刷新）
+
+- 函数计数：README 中所有「5 个云函数 / 打包全部 5 个 / 依次上传 5 个 zip / 5 个函数的对应关系」表述改为 6（约第 3、145、202、206 行）
+- 对应关系表补 `jieqian-unlock` 行：函数名 `jieqian-unlock`、动作 `record（幂等记账）/ query（解锁状态）`、客户端调用方 `CloudService.ets: recordSignUnlock / getSignUnlockStatus`
+- 表中 CloudService.ets 旧行号已漂移，按 Task 12 后实际状态刷新（grep `recordSignUnlock` 定位新行号）
+
+- [ ] **Step 5: 全仓残留检查**（不得有打赏/功德/供奉付款残留）
 
 Run:
 ```bash
