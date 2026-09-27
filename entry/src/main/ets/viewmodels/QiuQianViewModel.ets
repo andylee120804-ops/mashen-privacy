@@ -53,6 +53,10 @@ export class QiuQianViewModel {
       // 已置位则不覆盖（避免读旧快照把解锁回退）
       if (!this.unlocked) {
         this.unlocked = raw === true
+      } else {
+        // 内存已置位（EntryAbility 恢复先行）：回写磁盘，避免内存 true / 磁盘 false 不一致
+        await this.unlockPrefs.put(KEY_UNLOCKED, true)
+        await this.unlockPrefs.flush()
       }
     } catch (err) {
       console.error('[QiuQianVM] load unlocked failed:', JSON.stringify(err))
