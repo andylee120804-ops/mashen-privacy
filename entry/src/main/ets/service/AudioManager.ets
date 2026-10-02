@@ -9,12 +9,15 @@ const RAW_BLESSING = 'sounds/blessing.mp3'
 const RAW_BGM = 'sounds/bgm.mp3'
 
 /**
- * 短音/瞬态音并发策略：压低其他音频（duck）。
+ * 短音/瞬态音并发策略：share（与其他音频流并发，互不干扰）。
  * 短音播放体验规范要求短音不得以 stop 策略抢占焦点，
  * 须采用 share/duck/pause 之一；未激活 AudioSession 时系统按独占焦点处理。
+ * 采用 MIX_WITH_OTHERS（share）而非 DUCK：
+ * - 审核要求「静音播放场景焦点策略为 share」——音量过低/静音播放时不得压低其他 App 音频；
+ * - share 既不 stop 也不 duck 其他音频，对短音/瞬态音是三者中最保守的策略。
  */
 const TRANSIENT_CONCURRENCY: audio.AudioSessionStrategy = {
-  concurrencyMode: audio.AudioConcurrencyMode.CONCURRENCY_DUCK_OTHERS
+  concurrencyMode: audio.AudioConcurrencyMode.CONCURRENCY_MIX_WITH_OTHERS
 }
 
 /** 音效文件映射 */
@@ -33,10 +36,10 @@ const SOUND_FILES: Record<string, string> = {
  * 遵循 HarmonyOS 短音/瞬态音播放体验规范：
  * - 预加载所有音效到 SoundPool，避免播放时延迟
  * - 配置 AudioRendererInfo（STREAM_USAGE_MUSIC）参与系统音频焦点
- * - 激活 AudioSession（duck 策略），短音播放不抢占其他音频焦点
+ * - 激活 AudioSession（share 策略），短音播放与系统其他音频并发、互不干扰
  * - 监听 loadComplete 事件追踪加载状态
  * - BGM 设置 audioRendererInfo + audioInterrupt 监听，来电等场景自动暂停/恢复；
- *   BGM 播放期间取消 duck 会话（长音频应使用默认独占焦点）
+ *   BGM 播放期间取消 transient 会话（长音频应使用默认独占焦点）
  * - App 后台/销毁时及时释放资源
  */
 export class AudioManager {
@@ -61,7 +64,7 @@ export class AudioManager {
   }
 
   /**
-   * 激活短音并发策略（duck）。幂等。
+   * 激活短音并发策略（share/mix）。幂等。
    */
   private async activateTransientSession(): Promise<void> {
     const mgr = this.sessionManager
@@ -95,7 +98,7 @@ export class AudioManager {
     this.context = context
     try {
       this.sessionManager = audio.getAudioManager().getSessionManager()
-      // 先激活 duck 会话，确保首个短音效即采用 duck 策略而非 stop
+      // 先激活 transient 会话，确保首个短音效即采用 share 策略而非 stop
       await this.activateTransientSession()
 
       this.soundPool = (await media.createSoundPool(
@@ -145,7 +148,7 @@ export class AudioManager {
    */
   async startBgm(): Promise<void> {
     if (this.bgmPlayer !== null || this.context === null) return
-    // BGM 为长音频，取消 duck 会话，使用默认独占焦点（来电/其他音乐可正常暂停它）
+    // BGM 为长音频，取消 transient 会话，使用默认独占焦点（来电/其他音乐可正常暂停它）
     await this.deactivateTransientSession()
     try {
       this.bgmPlayer = await media.createAVPlayer()
@@ -189,7 +192,7 @@ export class AudioManager {
     } catch (err) {
       console.error('[AudioManager] startBgm failed:', JSON.stringify(err))
       this.bgmPlayer = null
-      // BGM 启动失败，恢复短音 duck 会话
+      // BGM 启动失败，恢复短音 transient 会话
       await this.activateTransientSession()
     }
   }
@@ -207,7 +210,7 @@ export class AudioManager {
     }
     this.bgmPlayer = null
     this.bgmInterrupted = false
-    // BGM 停止后恢复短音 duck 会话
+    // BGM 停止后恢复短音 transient 会话
     await this.activateTransientSession()
   }
 

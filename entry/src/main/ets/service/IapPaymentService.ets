@@ -1,13 +1,14 @@
 // entry/src/main/ets/service/IapPaymentService.ets
-// 解签买断支付实现（华为 IAP Kit，@kit.IAPKit，非消耗型商品 jieqian_unlock）。
+// 解签每日解锁支付实现（华为 IAP Kit，@kit.IAPKit，消耗型商品 jieqian_unlock）。
 // API 事实（本机 SDK @hms.core.iap.d.ts 实测核对）：
-//  - createPurchase(context, { productId, productType: NONCONSUMABLE, developerPayload })
+//  - createPurchase(context, { productId, productType: CONSUMABLE, developerPayload })
 //    → CreatePurchaseResult.purchaseData（JWS，payload 才含 productId/purchaseToken/purchaseOrderId）
-//  - queryPurchases(context, { productType: NONCONSUMABLE, queryType: CURRENT_ENTITLEMENT })
-//    → 已购商品列表（权益恢复；非消耗型无需 finishPurchase）
+//  - finishPurchase(context, { productType: CONSUMABLE, purchaseToken, purchaseOrderId })：消耗
+//  - queryPurchases(context, { productType: CONSUMABLE, queryType: UNFINISHED })
+//    → 已支付未消耗订单（崩溃补单；消耗型无权益恢复，靠本地解锁日期 + 补单）
 //  - queryEnvironmentStatus(context)：未登录抛 1001860050，地区不支持 1001860054
-// 时序：支付成功 → 本地置解锁标志（立即生效）→ 云端 record（异步幂等）；
-//  重装/换机 → restoreOwned() 恢复本地标志 + 云端幂等补记。
+// 时序：支付成功 → 本地置「今日解锁」（立即生效）→ 云端 record（异步幂等）→ consume（下次可再买）；
+//  崩溃在消耗前 → EntryAbility / QiuQian 打开详情时 recoverPending() 补单（今日解锁 + 幂等补记 + 消耗）。
 import { iap } from '@kit.IAPKit'
 import { common } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
@@ -16,7 +17,7 @@ import { IUnlockService, UnlockProduct, UnlockPurchaseResult, UNLOCK_PRODUCT, Pa
 
 // IAP 错误码（@hms.core.iap）
 const ERR_USER_CANCEL = 1001860000
-const ERR_ALREADY_OWNED = 1001860051  // 非消耗型重复购买（已拥有）被拒
+const ERR_ALREADY_OWNED = 1001860051  // 同商品存在未完成订单（上次支付成功未消耗）时再购买被拒
 const ERR_NOT_LOGIN = 1001860050
 const ERR_REGION_UNSUPPORTED = 1001860054
 const ERR_PRODUCT_UNAVAILABLE = 1001860007
@@ -52,7 +53,7 @@ function decodeJwsPayload(jws: string): string {
  *   purchaseData = { "jwsPurchaseOrder": "<header.payload.signature>" }
  * 链路：JSON.parse → 取 jwsPurchaseOrder → base64url 解码 JWS payload → JSON.parse 得
  * PurchaseOrderPayload（含 productId / purchaseToken / purchaseOrderId）。
- * ⚠️ productId 在 JWS 载荷里不在顶层；解析失败返回 null——调用方不得对空 token 记账。
+ * ⚠️ productId 在 JWS 载荷里不在顶层；解析失败返回 null——调用方不得对空 token 记账/消耗。
  */
 function parsePurchaseData(raw: string): HuaweiPurchaseData | null {
   try {
@@ -124,23 +125,25 @@ export class IapPaymentService implements IUnlockService {
       if (e.code === ERR_REGION_UNSUPPORTED) {
         throw new PaymentError(PaymentErrorKind.REGION, '当前地区暂不支持', e.code)
       }
+      // 未知环境错误：显式记录错误码（BusinessError.message 可能不带码，丢了无法定位）
+      console.error('[IapUnlock] queryEnvironmentStatus failed: code=' + e.code + ' msg=' + e.message)
       throw new Error('支付环境检查失败：' + e.message)
     }
 
-    // ② 拉起收银台（非消耗型：买断即永久拥有，无消耗动作）
+    // ② 拉起收银台（消耗型：每次付款解锁当天，需 finishPurchase 消耗后才能再买）
     let raw: string
     let data: HuaweiPurchaseData | null
     try {
       const result = await iap.createPurchase(this.context, {
         productId: UNLOCK_PRODUCT.productId,
-        productType: iap.ProductType.NONCONSUMABLE,
+        productType: iap.ProductType.CONSUMABLE,
         developerPayload: getDeviceUid()
       })
       raw = result.purchaseData
       data = parsePurchaseData(raw)
       if (data === null) {
-        // 解析不出关键字段：无法云端记账。本地解锁不受影响（isOwned 兜底恢复）
-        console.error('[IapUnlock] 购买成功但 purchaseData 解析失败，走 restoreOwned 兜底')
+        // 解析不出关键字段：无法云端记账/消耗。钱已扣，订单保持未完成留给补单处理
+        console.error('[IapUnlock] 购买成功但 purchaseData 解析失败，走 recoverPending 兜底')
       }
     } catch (err) {
       const e = err as BusinessError
@@ -151,9 +154,11 @@ export class IapPaymentService implements IUnlockService {
         throw new PaymentError(PaymentErrorKind.PRODUCT, '解锁服务准备中', e.code)
       }
       if (e.code === ERR_ALREADY_OWNED) {
-        // 非消耗型重复购买：已拥有，UI 引导走 restoreOwned 恢复
-        throw new PaymentError(PaymentErrorKind.ALREADY_OWNED, '已拥有解签权益', e.code)
+        // 消耗型同商品有未完成订单（上次购买成功未消耗）→ 触发补单恢复今日权益
+        throw new PaymentError(PaymentErrorKind.ALREADY_OWNED, '检测到未完成的今日解锁订单', e.code)
       }
+      // 未知购买错误：错误码必须落日志（grep IapUnlock 定位），UI 只显示笼统提示
+      console.error('[IapUnlock] createPurchase failed: code=' + e.code + ' msg=' + e.message)
       throw new Error('购买失败：' + e.message)
     }
 
@@ -169,14 +174,15 @@ export class IapPaymentService implements IUnlockService {
     }
   }
 
-  async restoreOwned(): Promise<UnlockPurchaseResult | null> {
-    // 权益恢复：queryPurchases CURRENT_ENTITLEMENT 拉已购非消耗型商品（华为帐号权益，
-    // 重装/换机可恢复）。未登录华为帐号会抛错——记日志返回 null（下次再试）。
+  async recoverPending(): Promise<UnlockPurchaseResult | null> {
+    // 补单恢复：queryPurchases 拉已支付未消耗的订单（queryType 显式 UNFINISHED——
+    // SDK 两版注释对默认值说法不一，显式传参消除歧义；误回 ALL 会全量重放历史订单）。
+    // 未登录华为帐号会抛错——记日志返回 null（下次再试；订单在华为侧不会丢）。
     let list: string[]
     try {
       const result = await iap.queryPurchases(this.context, {
-        productType: iap.ProductType.NONCONSUMABLE,
-        queryType: iap.PurchaseQueryType.CURRENT_ENTITLEMENT
+        productType: iap.ProductType.CONSUMABLE,
+        queryType: iap.PurchaseQueryType.UNFINISHED
       })
       list = result.purchaseDataList || []
     } catch (err) {
@@ -190,7 +196,7 @@ export class IapPaymentService implements IUnlockService {
         console.error('[IapUnlock] 恢复遇不可解析订单，跳过: raw(0-300)=' + raw.substring(0, 300))
         continue
       }
-      // 只认本商品订单：防未来新增其他非消耗型商品时跨产品权益泄露
+      // 只认本商品订单：防未来新增其他消耗型商品时跨产品权益泄露
       if (data.productId !== UNLOCK_PRODUCT.productId) {
         continue
       }
@@ -206,8 +212,11 @@ export class IapPaymentService implements IUnlockService {
     return null
   }
 
-  async isOwned(): Promise<boolean> {
-    const owned: UnlockPurchaseResult | null = await this.restoreOwned()
-    return owned !== null
+  async consume(result: UnlockPurchaseResult): Promise<void> {
+    await iap.finishPurchase(this.context, {
+      productType: iap.ProductType.CONSUMABLE,
+      purchaseToken: result.purchaseToken,
+      purchaseOrderId: result.orderId
+    })
   }
 }

@@ -54,7 +54,8 @@ export interface Wish {
   fulfilledAt: string
 }
 
-/** 解签买断上报参数（IAP 支付成功后传给 CloudService.recordSignUnlock） */
+/** 解签每日解锁上报参数（IAP 支付成功后传给 CloudService.recordSignUnlock；
+ *  unlockDate 由 CloudService 按本地日期补入） */
 export interface SignUnlockParams {
   productId: string       // AGC 商品 ID（jieqian_unlock，与服务端白名单一致）
   purchaseToken: string   // 幂等去重键

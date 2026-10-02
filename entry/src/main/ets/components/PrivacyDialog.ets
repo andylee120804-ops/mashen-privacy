@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit'
+import { SUPPORT_EMAIL } from './ContactSupportDialog'
 
 @CustomDialog
 export struct PrivacyDialog {
@@ -161,7 +162,7 @@ export struct PrivacyDialog {
 • 您有权随时清除祈福历史等本地记录。
 • 您有权删除自己发布的心愿。
 • 您有权拒绝提供姓名，仅影响排行榜与心愿墙的展示效果。
-• 如对本隐私政策有任何疑问，请联系开发者。
+• 如对本隐私政策有任何疑问，请联系客服：${SUPPORT_EMAIL}。
 
 六、更新说明
 我们可能会适时更新本隐私政策，更新后的政策将在应用内公示。

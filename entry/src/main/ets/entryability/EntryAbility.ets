@@ -8,7 +8,7 @@ import { util } from '@kit.ArkTS'
 import { EntryConfigVM } from '../viewmodels/EntryConfigVM'
 import { FortuneViewModel } from '../viewmodels/FortuneViewModel'
 import { MuyuViewModel } from '../viewmodels/MuyuViewModel'
-import { QiuQianViewModel, KEY_UNLOCKED } from '../viewmodels/QiuQianViewModel'
+import { QiuQianViewModel } from '../viewmodels/QiuQianViewModel'
 import { IapPaymentService } from '../service/IapPaymentService'
 import { UnlockPurchaseResult } from '../service/IPaymentService'
 import { CloudService } from '../service/CloudService'
@@ -79,31 +79,32 @@ export default class EntryAbility extends UIAbility {
           console.error('EnrichViewModel startCloudSync failed:', JSON.stringify(err))
         })
 
-        // 解签买断权益恢复：非消耗型商品已购（重装/换机/上次云端未记）→
-        // 置本地解锁标志 + 云端幂等补记。deviceUserId 就绪后才有 __uid 可记账；
-        // 未登录华为帐号时 queryPurchases 会安全跳过，下次启动再补。
-        const iapService = new IapPaymentService(this.context)
-        iapService.restoreOwned().then((owned: UnlockPurchaseResult | null) => {
-          if (owned === null) {
-            return
-          }
-          qiuVM.setUnlocked(true).catch((err: Object) => {
-            console.error('QiuQianViewModel setUnlocked failed:', JSON.stringify(err))
-          })
-          prefs.put(KEY_UNLOCKED, true).then(() => {
-            return prefs.flush()
+        // 解签每日解锁补单恢复：消耗型商品已支付未消耗（崩溃在消耗前/换机重装）→
+        // 置本地「今日解锁」 + 云端幂等补记 + 消耗。今日已在本地解锁（跨天自愈）则跳过。
+        // deviceUserId 就绪后才有 __uid 可记账；未登录华为帐号时 queryPurchases 会安全跳过，
+        // 下次启动/打开详情再补。setUnlockedForToday 与 deviceUserId 同文件持久化，无需另写。
+        if (!qiuVM.isUnlocked()) {
+          const iapService = new IapPaymentService(this.context)
+          iapService.recoverPending().then((owned: UnlockPurchaseResult | null) => {
+            if (owned === null) {
+              return
+            }
+            qiuVM.setUnlockedForToday().catch((err: Object) => {
+              console.error('QiuQianViewModel setUnlockedForToday failed:', JSON.stringify(err))
+            })
+            CloudService.recordSignUnlock({
+              productId: owned.productId,
+              purchaseToken: owned.purchaseToken,
+              purchaseData: owned.purchaseData,
+              orderId: owned.orderId
+            })
+            iapService.consume(owned).catch((err: Object) => {
+              console.error('EntryAbility consume pending failed:', JSON.stringify(err))
+            })
           }).catch((err: Object) => {
-            console.error('EntryAbility save jieqianUnlocked failed:', JSON.stringify(err))
+            console.error('IapPaymentService recoverPending failed:', JSON.stringify(err))
           })
-          CloudService.recordSignUnlock({
-            productId: owned.productId,
-            purchaseToken: owned.purchaseToken,
-            purchaseData: owned.purchaseData,
-            orderId: owned.orderId
-          })
-        }).catch((err: Object) => {
-          console.error('IapPaymentService restoreOwned failed:', JSON.stringify(err))
-        })
+        }
       })
     })
   }

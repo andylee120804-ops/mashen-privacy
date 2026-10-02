@@ -1,16 +1,17 @@
 // cloud/jieqian-unlock/handler.js
-// 解签买断解锁记录（IAP 非消耗型商品 jieqian_unlock）：
-//   action=record —— 上报解锁购买，幂等（同 purchaseToken 只记一条）
-//   action=query  —— 查该 uid 是否已解锁 { unlocked: bool }
-// 客户端 data: { action, __uid, productId?, purchaseToken?, purchaseData?, orderId? }
-// 非消耗型无「消耗」动作，时序简单：客户端支付成功 → 本地置位立即解锁 →
-//   云端记录（失败不阻塞解锁，重装/换机后由客户端 isOwned() 恢复 + 幂等补记）。
+// 解签每日解锁记录（IAP 消耗型商品 jieqian_unlock，一次付款解锁当天最多 3 个签）：
+//   action=record —— 上报解锁购买，幂等（同 purchaseToken 只记一条），落 unlockDate（客户端本地日期）
+//   action=query  —— 查该 uid 最近一次解锁日期 { unlockDate: 'YYYY-MM-DD' }（客户端按本地日期比较是否「今天」）
+// 客户端 data: { action, __uid, productId?, purchaseToken?, purchaseData?, orderId?, unlockDate? }
+// 计费模型（2026-09-28 由永久买断改为每日解锁）：付款成功 → 本地置「今日解锁」立即生效 →
+//   云端记录（失败不阻塞解锁，重装/换机后由客户端 recoverPending 补单 + 幂等补记）。
+//   权益按天失效，客户端 isUnlocked() = unlockDate === 本地今天。
 const { wrapHttp, success, fail, CODE } = require('./shared/response');
-const { getDB, toGenericObjects, withTimeout, DB_TIMEOUT_MS } = require('./shared/db');
+const { getDB, toGenericObjects, toPlainObject, withTimeout, DB_TIMEOUT_MS } = require('./shared/db');
 
 var UNLOCK_TYPE = 'SignUnlock';
 
-// 商品白名单：唯一非消耗型商品。必须与 AGC 控制台「应用内购买服务」配置一致。
+// 商品白名单：唯一消耗型商品。必须与 AGC 控制台「应用内购买服务」配置一致（消耗型）。
 var ALLOWED_PRODUCT_ID = 'jieqian_unlock';
 
 // 客户端可控字段长度上限（伪造面缓解：防大对象滥用存储/拖垮查询）
@@ -21,6 +22,7 @@ var MAX_TOKEN_LEN = 256;    // purchaseToken
 //   purchaseToken（已单独存储，v2 action=verify 走 token 调华为订单服务）。
 var MAX_DATA_LEN = 200;     // purchaseData（截断存证，勿再调大）
 var MAX_ORDER_LEN = 128;    // purchaseOrderId
+var MAX_UNLOCK_DATE_LEN = 10; // unlockDate（YYYY-MM-DD）
 
 async function handler(body, event, context, log) {
   var action = body.action;
@@ -47,6 +49,8 @@ async function handler(body, event, context, log) {
         var purchaseToken = body.purchaseToken;
         var orderId = typeof body.orderId === 'string' ? body.orderId.slice(0, MAX_ORDER_LEN) : '';
         var purchaseData = typeof body.purchaseData === 'string' ? body.purchaseData.slice(0, MAX_DATA_LEN) : '';
+        // 客户端本地日期（解锁生效日，YYYY-MM-DD）；权益按天失效，云端仅存证/兜底查询
+        var unlockDate = typeof body.unlockDate === 'string' ? body.unlockDate.slice(0, MAX_UNLOCK_DATE_LEN) : '';
         if (productId !== ALLOWED_PRODUCT_ID) {
           return fail(CODE.PARAM_ERROR, 'invalid productId: ' + productId);
         }
@@ -61,11 +65,12 @@ async function handler(body, event, context, log) {
           DB_TIMEOUT_MS,
           'jieqian-unlock:idem-query'
         );
-        // 幂等命中：unlocked:true 语义是「该 token 已记账」，不代表调用者已解锁
-        // （跨用户重放时调用者 query 仍为 false；客户端不消费此值，fire-and-forget）
+        // 幂等命中：返回 unlockDate（该 token 已记账），不代表调用者今日已解锁
+        // （跨用户重放时调用者 query 仍拿不到该日期；客户端不消费此值，fire-and-forget）
         if (existing && existing.length > 0) {
           log.info('[jieqian-unlock] duplicate purchaseToken, skip uid=' + uid);
-          return success({ unlocked: true }, 'duplicate ignored');
+          var dup = toPlainObject(existing[0]);
+          return success({ unlockDate: (dup && dup.unlockDate) || '' }, 'duplicate ignored');
         }
 
         // ---- 落解锁记录 ----
@@ -75,6 +80,7 @@ async function handler(body, event, context, log) {
           productId: productId,
           purchaseToken: purchaseToken,
           purchaseData: purchaseData,
+          unlockDate: unlockDate,
           createdAt: new Date().toISOString()
         };
         await withTimeout(
@@ -82,8 +88,9 @@ async function handler(body, event, context, log) {
           DB_TIMEOUT_MS,
           'jieqian-unlock:unlock-upsert'
         );
-        log.info('[jieqian-unlock] recorded id=' + unlock.id + ' productId=' + productId + ' uid=' + uid);
-        return success({ unlocked: true });
+        log.info('[jieqian-unlock] recorded id=' + unlock.id + ' productId=' + productId
+          + ' unlockDate=' + (unlockDate || 'none') + ' uid=' + uid);
+        return success({ unlockDate: unlockDate });
       }
 
       case 'query': {
@@ -93,7 +100,17 @@ async function handler(body, event, context, log) {
           DB_TIMEOUT_MS,
           'jieqian-unlock:query'
         );
-        return success({ unlocked: !!(rows && rows.length > 0) });
+        // 每日解锁：返回最近一次解锁日期（YYYY-MM-DD 字符串比较即日期比较），
+        // 客户端按本地日期判断是否「今天」（跨天自愈，不依赖服务端时区）。
+        var latest = '';
+        if (rows && rows.length > 0) {
+          for (var i = 0; i < rows.length; i++) {
+            var row = toPlainObject(rows[i]);
+            var d = (row && row.unlockDate) || '';
+            if (d > latest) latest = d;
+          }
+        }
+        return success({ unlockDate: latest });
       }
 
       default:

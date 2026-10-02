@@ -13,6 +13,7 @@ import { GameRecordCard } from '../components/GameRecordCard'
 import { AchievementGrid } from '../components/AchievementGrid'
 import { PrivacyDialog } from '../components/PrivacyDialog'
 import { TipModal } from '../components/TipModal'
+import { ContactSupportDialog } from '../components/ContactSupportDialog'
 import { Achievement } from '../model/EnrichTypes'
 
 @Component
@@ -28,6 +29,8 @@ export struct MyPage {
   private privacyDialogController: CustomDialogController | null = null
   // 惰性创建供奉弹窗控制器：避免页面入场时提前构建 TipModal 子树，降低点击时延
   private tipDialogController: CustomDialogController | null = null
+  // 惰性创建联系客服弹窗控制器（审核问题1整改：付费应用需在应用内提供客服联系方式）
+  private supportDialogController: CustomDialogController | null = null
 
   aboutToAppear(): void {
     this.syncAll()
@@ -86,6 +89,19 @@ export struct MyPage {
     this.privacyDialogController.open()
   }
 
+  /** 打开联系客服弹窗（惰性创建，降低页面入场时延；客服邮箱 + 复制 / 发邮件） */
+  private openSupportDialog(): void {
+    if (this.supportDialogController === null) {
+      this.supportDialogController = new CustomDialogController({
+        builder: ContactSupportDialog({}),
+        autoCancel: true,
+        alignment: DialogAlignment.Center,
+        customStyle: true
+      })
+    }
+    this.supportDialogController.open()
+  }
+
   build() {
     Column() {
       // 顶部标题
@@ -124,6 +140,9 @@ export struct MyPage {
             this.MenuItem('🏗', '界面定制', `Tab 已开 ${this.tabCount}/3`, false, (): void => {
               this.getUIContext().getRouter().pushUrl({ url: 'pages/CustomizePage' })
             })
+
+            // 联系客服（审核整改：应用含付费项目，需在应用内提供客服联系方式）
+            this.MenuItem('📮', '联系客服', '', false, (): void => { this.openSupportDialog() })
 
             // 功能入口：只列未开启为底部 Tab 的功能（其余已由底部 Tab 直达）
             this.EntryListSection()

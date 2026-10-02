@@ -8,7 +8,10 @@ const PREF_NAME = 'mashen_qiuqian_prefs'
 const KEY_RECORDS = 'qiuRecords'
 const KEY_DAILY = 'qiuDaily'
 export const MAX_DAILY_QIU = 3      // 每日最多求签次数
-export const KEY_UNLOCKED = 'jieqianUnlocked'   // 解签买断解锁标志（存 mashen_user_prefs，与 deviceUserId 同文件；EntryAbility 恢复路径复用）
+// 解签每日解锁日期（YYYY-MM-DD，存 mashen_user_prefs，与 deviceUserId 同文件；
+// EntryAbility 恢复路径复用）。值为「最近一次解锁日期」，isUnlocked() 按本地今天比较——
+// 跨天自动失效（每日解锁：一次付款只解锁当天最多 3 个签的解签，次日重新付费）。
+export const KEY_UNLOCKED = 'jieqianUnlocked'
 const MAX_QIU_RECORDS = 100         // 本机保留记录上限
 
 /** 每日额度（按本地日期滚动） */
@@ -30,7 +33,7 @@ export class QiuQianViewModel {
   daily: QiuDaily = { date: '', count: 0 }
   private dataPrefs: preferences.Preferences | null = null
   private unlockPrefs: preferences.Preferences | null = null
-  unlocked: boolean = false   // 解签买断解锁状态（内存主权益源）
+  unlockDate: string = ''   // 最近一次解签解锁日期（YYYY-MM-DD；isUnlocked 按本地今天比较）
 
   async initialize(context: Context): Promise<void> {
     this.dataPrefs = await preferences.getPreferences(context, PREF_NAME)
@@ -48,14 +51,24 @@ export class QiuQianViewModel {
     }
     try {
       this.unlockPrefs = await preferences.getPreferences(context, 'mashen_user_prefs')
-      const raw = await this.unlockPrefs.get(KEY_UNLOCKED, false)
-      // 启动恢复（EntryAbility setUnlocked）可能先于本初始化置位内存值：
+      const raw = await this.unlockPrefs.get(KEY_UNLOCKED, '')
+      // 旧版永久买断标志迁移（布尔 true）：一次性转为「今日已解锁」（预发布无真实购买，
+      // 给早期测试者当天权益；次日按每日解锁模型重新付费）。false/空串 → 未解锁。
+      let storedDate: string = ''
+      if (typeof raw === 'string') {
+        storedDate = raw as string
+      } else if (raw === true) {
+        storedDate = todayStr()
+        await this.unlockPrefs.put(KEY_UNLOCKED, storedDate)
+        await this.unlockPrefs.flush()
+      }
+      // 启动恢复（EntryAbility setUnlockedForToday）可能先于本初始化置位内存值：
       // 已置位则不覆盖（避免读旧快照把解锁回退）
-      if (!this.unlocked) {
-        this.unlocked = raw === true
+      if (this.unlockDate === '') {
+        this.unlockDate = storedDate
       } else {
-        // 内存已置位（EntryAbility 恢复先行）：回写磁盘，避免内存 true / 磁盘 false 不一致
-        await this.unlockPrefs.put(KEY_UNLOCKED, true)
+        // 内存已置位（EntryAbility 恢复先行）：回写磁盘，避免内存有值 / 磁盘旧值不一致
+        await this.unlockPrefs.put(KEY_UNLOCKED, this.unlockDate)
         await this.unlockPrefs.flush()
       }
     } catch (err) {
@@ -119,19 +132,20 @@ export class QiuQianViewModel {
     await this.persistRecords()
   }
 
+  /** 今日是否已解锁解签：最近解锁日期 === 本地今天（跨天自动失效，无需额外清理） */
   isUnlocked(): boolean {
-    return this.unlocked
+    return this.unlockDate === todayStr()
   }
 
-  /** 置解锁状态并落盘（支付成功 / restoreOwned 恢复时调用）。
+  /** 置「今日已解锁」并落盘（支付成功 / recoverPending 补单恢复时调用）。
    *  内存值立即生效；持久化失败仅记日志（重装后由 EntryAbility 恢复路径重写）。 */
-  async setUnlocked(v: boolean): Promise<void> {
-    this.unlocked = v
+  async setUnlockedForToday(): Promise<void> {
+    this.unlockDate = todayStr()
     if (this.unlockPrefs === null) {
       return
     }
     try {
-      await this.unlockPrefs.put(KEY_UNLOCKED, v)
+      await this.unlockPrefs.put(KEY_UNLOCKED, this.unlockDate)
       await this.unlockPrefs.flush()
     } catch (err) {
       console.error('[QiuQianVM] save unlocked failed:', JSON.stringify(err))

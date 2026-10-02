@@ -1,8 +1,8 @@
 // cloud/jieqian-unlock/smoke.cjs
 // 冒烟测试：stub shared/response + shared/db，内存 store 验证 handler 逻辑。
 // 运行：node cloud/jieqian-unlock/smoke.cjs（0 退出码 = 全过）
-// 覆盖：record 记账 / purchaseToken 幂等不双记 / 跨用户 token 重放不加权益 /
-//       query 解锁状态 / orderId 缺省兜底 / purchaseData 非字符串落 '' /
+// 覆盖：record 记账（含 unlockDate）/ purchaseToken 幂等不双记 / 跨用户 token 重放不加权益 /
+//       query 最近解锁日期 / orderId 缺省兜底 / purchaseData 非字符串落 '' /
 //       DB 抛错 500 信封 / 401 / 400。
 const path = require('path');
 const fsSync = require('fs');
@@ -89,19 +89,20 @@ async function call(data) {
 }
 
 (async () => {
-  // 1. record 首次记账
-  let r = await call({ action: 'record', __uid: 'u1', productId: 'jieqian_unlock', purchaseToken: 'tok_1', purchaseData: '{"sig":1}', orderId: 'order_1' });
+  // 1. record 首次记账（含 unlockDate）
+  let r = await call({ action: 'record', __uid: 'u1', productId: 'jieqian_unlock', purchaseToken: 'tok_1', purchaseData: '{"sig":1}', orderId: 'order_1', unlockDate: '2026-09-28' });
   check('record 首次 code=0', r.code === 0, JSON.stringify(r));
-  check('record 返回 unlocked=true', r.data && r.data.unlocked === true, JSON.stringify(r.data));
+  check('record 返回 unlockDate', r.data && r.data.unlockDate === '2026-09-28', JSON.stringify(r.data));
   check('SignUnlock 落 1 条', stores.SignUnlock.length === 1, JSON.stringify(stores.SignUnlock));
   check('id 用 purchaseOrderId', stores.SignUnlock[0].id === 'order_1', stores.SignUnlock[0].id);
   check('uid/productId/purchaseToken 落库', stores.SignUnlock[0].uid === 'u1'
     && stores.SignUnlock[0].productId === 'jieqian_unlock'
     && stores.SignUnlock[0].purchaseToken === 'tok_1', JSON.stringify(stores.SignUnlock[0]));
   check('purchaseData 存证保留', stores.SignUnlock[0].purchaseData === '{"sig":1}', String(stores.SignUnlock[0].purchaseData));
+  check('unlockDate 落库', stores.SignUnlock[0].unlockDate === '2026-09-28', String(stores.SignUnlock[0].unlockDate));
 
   // 2. 幂等：同 purchaseToken 重复上报不双记
-  r = await call({ action: 'record', __uid: 'u1', productId: 'jieqian_unlock', purchaseToken: 'tok_1', purchaseData: '{"sig":1}', orderId: 'order_1' });
+  r = await call({ action: 'record', __uid: 'u1', productId: 'jieqian_unlock', purchaseToken: 'tok_1', purchaseData: '{"sig":1}', orderId: 'order_1', unlockDate: '2026-09-28' });
   check('幂等重复 code=0（静默成功）', r.code === 0, JSON.stringify(r));
   check('幂等不双记仍 1 条', stores.SignUnlock.length === 1, 'len=' + stores.SignUnlock.length);
 
@@ -110,17 +111,23 @@ async function call(data) {
   check('跨用户重放 code=0（幂等命中）', r.code === 0, JSON.stringify(r));
   check('跨用户重放不落流水', stores.SignUnlock.length === 1, 'len=' + stores.SignUnlock.length);
 
-  // 4. orderId 缺省 + purchaseData 非字符串
+  // 4. orderId 缺省 + purchaseData 非字符串 + unlockDate 缺省
   r = await call({ action: 'record', __uid: 'u3', productId: 'jieqian_unlock', purchaseToken: 'tok_3', purchaseData: 12345 });
   const d3 = stores.SignUnlock.find((x) => x.purchaseToken === 'tok_3');
   check('orderId 缺省生成 u_ 前缀 id', d3 && /^u_/.test(d3.id), d3 && d3.id);
   check('purchaseData 非字符串落空串', d3 && d3.purchaseData === '', d3 && String(d3.purchaseData));
+  check('unlockDate 缺省落空串', d3 && d3.unlockDate === '', d3 && String(d3.unlockDate));
 
-  // 5. query 解锁状态
+  // 5. query 最近解锁日期
   r = await call({ action: 'query', __uid: 'u1' });
-  check('query u1 已解锁', r.code === 0 && r.data && r.data.unlocked === true, JSON.stringify(r.data));
+  check('query u1 返回最近解锁日期', r.code === 0 && r.data && r.data.unlockDate === '2026-09-28', JSON.stringify(r.data));
   r = await call({ action: 'query', __uid: 'u_nobody' });
-  check('query 新用户未解锁', r.code === 0 && r.data && r.data.unlocked === false, JSON.stringify(r.data));
+  check('query 新用户 unlockDate 空串', r.code === 0 && r.data && r.data.unlockDate === '', JSON.stringify(r.data));
+  // 多日多次购买：取最近一次（字符串比较即日期比较）
+  r = await call({ action: 'record', __uid: 'u4', productId: 'jieqian_unlock', purchaseToken: 'tok_4a', orderId: 'order_4a', unlockDate: '2026-09-27' });
+  r = await call({ action: 'record', __uid: 'u4', productId: 'jieqian_unlock', purchaseToken: 'tok_4b', orderId: 'order_4b', unlockDate: '2026-09-28' });
+  r = await call({ action: 'query', __uid: 'u4' });
+  check('query 多记录取最近日期', r.code === 0 && r.data && r.data.unlockDate === '2026-09-28', JSON.stringify(r.data));
 
   // 6. 故障注入：upsert 抛错 → 500 信封不崩
   failNextUpsert = true;

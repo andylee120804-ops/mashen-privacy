@@ -8,6 +8,7 @@ import { PrayerViewModel } from '../viewmodels/PrayerViewModel'
 import { QiuQianViewModel, MAX_DAILY_QIU } from '../viewmodels/QiuQianViewModel'
 import { ParticleCanvas, ParticleType } from '../components/ParticleCanvas'
 import { PageBack } from '../components/PageBack'
+import { ContactSupportDialog } from '../components/ContactSupportDialog'
 import { pasteboard, BusinessError } from '@kit.BasicServicesKit'
 import { common } from '@kit.AbilityKit'
 import { router } from '@kit.ArkUI'
@@ -97,9 +98,10 @@ export struct QiuQianPage {
   @State qiuRecords: QiuRecord[] = []      // 签录快照（新→旧）
   @State todayUsed: number = 0             // 今日已求次数（0..3）
   @State clearArmed: boolean = false       // 清空签录二次确认
-  @State unlocked: boolean = false       // 解签买断解锁状态（快照自 qiuVM）
+  @State unlocked: boolean = false       // 今日解签解锁状态（快照自 qiuVM，跨天自动失效）
   private unlocking: boolean = false     // 解锁进行中（防重入）
-  private restoreCheckDone: boolean = false  // 本页会话内只做一次权益恢复检查
+  private supportDialogController: CustomDialogController | null = null  // 联系客服弹窗（惰性创建）
+  private restoreCheckDone: boolean = false  // 本页会话内只做一次补单恢复检查
   private timers: number[] = []
   private shakeTimerId: number = -1
   private swayPhase: number = 0   // 摆动相位推进器（随摇筒 step 递增）
@@ -572,7 +574,8 @@ export struct QiuQianPage {
       }
 
       // 签纸（REVEAL 阶段：翻牌入场）
-      if (this.phase === QiuPhase.REVEAL) {
+      // 详情弹层打开时整棵移出渲染树（亮色纸在遮罩后仍有光晕，移出才彻底干净）
+      if (this.phase === QiuPhase.REVEAL && !this.showDetail) {
         this.SignPaperCard()
       }
     }
@@ -673,7 +676,7 @@ export struct QiuQianPage {
       Column()
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0, 0, 0, 0.65)')
+        .backgroundColor('rgba(0, 0, 0, 0.99)')  // 纯黑遮罩：背后页面彻底不可见，只剩弹卡（简洁）
         .onClick((): void => { this.tryCloseDetail() })
 
       Column() {
@@ -722,32 +725,44 @@ export struct QiuQianPage {
             .lineHeight(19)
             .margin({ top: 10 })
         } else {
-          // 锁占位：解签文 + 买断入口（WCAG：金底深字 #1a1a0a 实色，禁用仅用 enabled 不压暗）
+          // 锁占位：今日解签 + 每日解锁入口。WCAG 已验（#241f12 底）：cream 0.9→12.55 / cream 0.6→6.29 /
+          // gold 0.7→5.87 / 金钮深字 #1a1a0a→11.29，均 ≥4.5。禁用仅用 enabled，不用透明度压暗。
           Column() {
-            Text('🔒 解签文已锁')
-              .fontSize(15)
+            Text('🔒 今日解签已锁')
+              .fontSize(17)
               .fontWeight(FontWeight.Bold)
-              .fontColor('rgba(253, 246, 227, 0.85)')
-            Text(`¥${UNLOCK_PRODUCT.amount} 买断 · 一次解锁永久畅看`)
+              .fontColor('rgba(253, 246, 227, 0.9)')
+            Text(`今日已求 ${this.todayUsed}/${MAX_DAILY_QIU} 签 · 解锁后畅看今日全部解签`)
+              .fontSize(12)
+              .fontColor('rgba(253, 246, 227, 0.6)')
+              .margin({ top: 6 })
+            Text('一次付款 = 今日三签 · 明日重新解锁')
               .fontSize(11)
-              .fontColor('rgba(253, 246, 227, 0.5)')
-              .margin({ top: 4 })
-            Button(this.unlocking ? '解锁中…' : '🔓 永久解锁')
-              .fontSize(14)
+              .fontColor('rgba(249, 202, 36, 0.7)')
+              .margin({ top: 2 })
+            Button(this.unlocking ? '解锁中…' : `🔓 ¥${UNLOCK_PRODUCT.amount} 解锁今日三只签`)
+              .fontSize(15)
               .fontWeight(FontWeight.Bold)
               .fontColor('#1a1a0a')
               .backgroundColor('#f9ca24')
-              .borderRadius(20)
-              .padding({ left: 26, right: 26, top: 9, bottom: 9 })
-              .margin({ top: 12 })
+              .borderRadius(24)
+              .padding({ left: 34, right: 34, top: 12, bottom: 12 })
+              .margin({ top: 14 })
               .enabled(!this.unlocking)
               .onClick((): void => { this.unlockJieqian() })
+            // 支付问题客服入口（审核整改：付费入口旁提供客服联系方式）
+            Text('购买遇到问题？联系客服')
+              .fontSize(11)
+              .fontColor('rgba(249, 202, 36, 0.7)')
+              .textAlign(TextAlign.Center)
+              .margin({ top: 12 })
+              .onClick((): void => { this.openSupportDialog() })
           }
           .width('100%')
-          .padding({ top: 14, bottom: 14 })
-          .border({ width: 1, color: 'rgba(249, 202, 36, 0.35)', radius: 12 })
+          .padding({ top: 18, bottom: 18 })
+          .border({ width: 1, color: 'rgba(249, 202, 36, 0.35)', radius: 14 })
           .backgroundColor('rgba(249, 202, 36, 0.06)')
-          .margin({ top: 14 })
+          .margin({ top: 16 })
         }
 
         Row() {
@@ -776,11 +791,11 @@ export struct QiuQianPage {
         .width('100%')
         .margin({ top: 22 })
       }
-      .width('82%')
-      .padding(24)
+      .width('90%')
+      .padding(26)
       .backgroundColor('#241f12')
-      .border({ width: 1, color: 'rgba(249, 202, 36, 0.35)', radius: 16 })
-      .shadow({ radius: 30, color: 'rgba(0, 0, 0, 0.5)', offsetY: 8 })
+      .border({ width: 1, color: 'rgba(249, 202, 36, 0.35)', radius: 18 })
+      .shadow({ radius: 34, color: 'rgba(0, 0, 0, 0.6)', offsetY: 10 })
     }
     .width('100%')
     .height('100%')
@@ -955,11 +970,11 @@ export struct QiuQianPage {
     this.tryRestoreUnlock()
   }
 
-  /** 未解锁时静默恢复权益（重装/换机/上次云端未记）：打开详情即自动解锁 */
+  /** 未解锁时静默补单恢复（上次购买成功未消耗 / 上次云端未记）：打开详情即自动解锁今日 */
   private tryRestoreUnlock(): void {
-    if (this.qiuVM.isUnlocked()) {
-      // VM 已解锁但页面快照可能未同步（initialize/EntryAbility 恢复晚于 aboutToAppear）：补同步
-      this.unlocked = true
+    // 快照先同步 VM：跨天解锁过期（isUnlocked 自愈），先刷新页面状态再决定是否走恢复
+    this.unlocked = this.qiuVM.isUnlocked()
+    if (this.unlocked) {
       return
     }
     if (this.restoreCheckDone) {
@@ -967,55 +982,80 @@ export struct QiuQianPage {
     }
     this.restoreCheckDone = true
     const iap = new IapPaymentService(this.getUIContext().getHostContext() as common.UIAbilityContext)
-    iap.restoreOwned().then(async (owned: UnlockPurchaseResult | null) => {
+    iap.recoverPending().then(async (owned: UnlockPurchaseResult | null) => {
       if (owned !== null) {
         await this.applyUnlock(owned)
       }
     }).catch((err: Object) => {
-      console.error('[QiuQian] restoreUnlock failed:', JSON.stringify(err))
+      console.error('[QiuQian] recoverPending failed:', JSON.stringify(err))
     })
   }
 
-  /** 解锁流程：已购恢复 → 买断 → 本地置位 + 云端幂等补记 */
+  /** 解锁流程：补单恢复 → 购买（消耗型）→ 今日置位 + 云端幂等补记 + 消耗 */
   private async unlockJieqian(): Promise<void> {
     if (this.unlocking) {
       return
     }
     this.unlocking = true
+    console.info('[IapUnlock] unlockJieqian clicked, unlocked=' + this.unlocked + ' todayUsed=' + this.todayUsed)
     try {
       const iap = new IapPaymentService(this.getUIContext().getHostContext() as common.UIAbilityContext)
-      // ① 已购恢复（重装/换机/上次云端未记）
-      const owned: UnlockPurchaseResult | null = await iap.restoreOwned()
-      if (owned !== null) {
-        await this.applyUnlock(owned)
+      // ① 补单恢复（上次购买成功未消耗：崩溃在消耗前/上次云端未记）
+      console.info('[IapUnlock] step1 recoverPending start')
+      const pending: UnlockPurchaseResult | null = await iap.recoverPending()
+      console.info('[IapUnlock] step1 recoverPending done, pending=' + (pending !== null))
+      if (pending !== null) {
+        await this.applyUnlock(pending)
         return
       }
-      // ② 买断
+      // ② 购买今日解锁（消耗型）
+      console.info('[IapUnlock] step2 purchase start')
       const result: UnlockPurchaseResult = await iap.purchase()
+      console.info('[IapUnlock] step2 purchase done, success=' + result.success + ' canceled=' + result.canceled + ' order=' + result.orderId)
       if (result.canceled) {
         return  // 用户取消：静默
       }
       await this.applyUnlock(result)
     } catch (err) {
+      console.error('[IapUnlock] unlockJieqian caught: ' + JSON.stringify(err))
       this.handleUnlockError(err)
     } finally {
       this.unlocking = false
     }
   }
 
-  /** 解锁落账：本地置位（主权益源，立即生效）+ 云端幂等补记（失败不阻塞解锁） */
+  /** 打开联系客服弹窗（审核整改：付费入口旁提供客服联系方式；惰性创建） */
+  private openSupportDialog(): void {
+    if (this.supportDialogController === null) {
+      this.supportDialogController = new CustomDialogController({
+        builder: ContactSupportDialog({}),
+        autoCancel: true,
+        alignment: DialogAlignment.Center,
+        customStyle: true
+      })
+    }
+    this.supportDialogController.open()
+  }
+
+  /** 今日解锁落账：本地置「今日」日期（主权益源，立即生效）+ 云端幂等补记 + 消耗 */
   private async applyUnlock(result: UnlockPurchaseResult): Promise<void> {
     if (this.unlocked) {
-      return  // 已解锁（恢复/买断并发竞态）：幂等短路，避免双 toast 与重复记账
+      return  // 今日已解锁（补单/购买并发竞态）：幂等短路，避免双 toast 与重复记账
     }
-    await this.qiuVM.setUnlocked(true)
+    await this.qiuVM.setUnlockedForToday()
     this.unlocked = true
-    this.toast('解签已解锁 · 功德圆满 🙏')
+    this.toast('今日解签已解锁 🙏')
     CloudService.recordSignUnlock({
       productId: result.productId,
       purchaseToken: result.purchaseToken,
       purchaseData: result.purchaseData,
       orderId: result.orderId
+    })
+    // 消耗商品（每次付款解锁当天）：失败不阻塞解锁——下次购买被 1001860051 拦截时
+    // recoverPending 补单路径会再消耗，不会永久锁死
+    const iap = new IapPaymentService(this.getUIContext().getHostContext() as common.UIAbilityContext)
+    iap.consume(result).catch((err: Object) => {
+      console.error('[QiuQian] consume failed:', JSON.stringify(err))
     })
   }
 
@@ -1026,8 +1066,8 @@ export struct QiuQianPage {
         // 与供奉弹窗同款 v1 指引：系统设置登录（LoginWithHuaweiID 引导留 v2）
         this.toast('解锁需登录华为帐号，请在系统设置中登录后重试')
       } else if (pe.kind === PaymentErrorKind.ALREADY_OWNED) {
-        // 已拥有但 restoreOwned 未生效（queryPurchases 瞬断）：重置恢复标记直接再恢复，
-        // 成功路径走 applyUnlock 的「解签已解锁」toast
+        // 消耗型同商品有未完成订单（上次购买成功未消耗）：重置恢复标记走补单恢复，
+        // 成功路径走 applyUnlock 的「今日解签已解锁」toast
         this.restoreCheckDone = false
         this.tryRestoreUnlock()
       } else {

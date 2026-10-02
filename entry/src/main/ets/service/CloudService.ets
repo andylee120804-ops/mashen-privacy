@@ -20,9 +20,9 @@ interface IncenseCountData {
   count: number
 }
 
-/** 解签解锁状态返回体 */
+/** 解签解锁状态返回体（每日解锁：unlockDate 为最近一次解锁日期，客户端按本地今天比较） */
 interface UnlockStatusData {
-  unlocked: boolean
+  unlockDate: string
 }
 
 /** 设备匿名 ID（EntryAbility 启动时生成并写入 AppStorage） */
@@ -33,6 +33,14 @@ function getUserId(): string {
   } catch {
     return 'unknown'
   }
+}
+
+/** 本地日期 YYYY-MM-DD（与 QiuQianViewModel 同口径，解签解锁按天生效） */
+function todayStr(): string {
+  const d = new Date()
+  const mm = `${d.getMonth() + 1}`.padStart(2, '0')
+  const dd = `${d.getDate()}`.padStart(2, '0')
+  return `${d.getFullYear()}-${mm}-${dd}`
 }
 
 /** 脱敏昵称：首字 + *** */
@@ -286,9 +294,9 @@ export class CloudService {
     }
   }
 
-  /** 上报解签买断（IAP 支付成功后调用）。云端按 purchaseToken 幂等去重。
-   *  成功返回 true；失败返回 false——不阻塞解锁（本地标志已生效），
-   *  重装/换机后由 restoreOwned 恢复 + 幂等补记。 */
+  /** 上报解签每日解锁（IAP 支付成功后调用）。云端按 purchaseToken 幂等去重，
+   *  随单落 unlockDate（客户端本地日期，解锁生效日）。成功返回 true；失败返回 false——
+   *  不阻塞解锁（本地今日解锁已生效），重装/换机后由 recoverPending 补单 + 幂等补记。 */
   static async recordSignUnlock(params: SignUnlockParams): Promise<boolean> {
     try {
       const result = await cloudFunction.call({
@@ -299,6 +307,7 @@ export class CloudService {
           purchaseToken: params.purchaseToken,
           purchaseData: params.purchaseData,
           orderId: params.orderId,
+          unlockDate: todayStr(),
           __uid: getUserId()
         }
       })
@@ -310,7 +319,7 @@ export class CloudService {
     }
   }
 
-  /** 查询该设备是否已解锁解签（云端兜底，与 restoreOwned 双保险）。失败返回 false */
+  /** 查询该设备最近一次解锁日期是否为今天（云端兜底，与本地 isUnlocked 双保险）。失败返回 false */
   static async getSignUnlockStatus(): Promise<boolean> {
     try {
       const result = await cloudFunction.call({
@@ -323,7 +332,7 @@ export class CloudService {
       const env: CloudEnvelope | null = parseEnvelope(result.result)
       if (env !== null && env.code === 0 && env.data !== null) {
         const d: UnlockStatusData = env.data as UnlockStatusData
-        return d.unlocked === true
+        return d.unlockDate === todayStr()
       }
       return false
     } catch (err) {

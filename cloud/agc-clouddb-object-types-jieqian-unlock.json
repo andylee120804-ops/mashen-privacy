@@ -56,6 +56,15 @@
           "isNeedEncrypt": false,
           "isSensitive": false,
           "defaultValue": ""
+        },
+        {
+          "fieldName": "unlockDate",
+          "fieldType": "String",
+          "belongPrimaryKey": false,
+          "notNull": true,
+          "isNeedEncrypt": false,
+          "isSensitive": false,
+          "defaultValue": ""
         }
       ],
       "indexes": []

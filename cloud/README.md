@@ -25,7 +25,7 @@ cloud/
 │   ├── handler.js
 │   ├── package.json
 │   └── smoke.cjs            # 冒烟测试：node cloud/donation-record/smoke.cjs
-├── jieqian-unlock/          # 解签买断 record（幂等记账）/ query（解锁状态）
+├── jieqian-unlock/          # 解签每日解锁 record（幂等记账，落 unlockDate）/ query（最近解锁日期）
 │   ├── handler.js
 │   ├── package.json
 │   └── smoke.cjs            # 冒烟测试：node cloud/jieqian-unlock/smoke.cjs
@@ -127,7 +127,11 @@ cloud/
 > ⚠️ **打赏已随审核整改移除（2026-09-27）**：客户端不再调用 `donation-record`，
 > 两表与函数保留不下架（避免误伤历史数据），仅停止调用。
 
-### SignUnlock 对象类型（解签买断流水，IAP 非消耗型）
+### SignUnlock 对象类型（解签每日解锁流水，IAP 消耗型）
+
+> ⚠️ 计费模型（2026-09-28）：由「一次买断永久解锁」改为「一次付款解锁当天最多 3 个签」，
+> IAP 商品 `jieqian_unlock` 由**非消耗型改为消耗型**（¥0.9），客户端解锁后 finishPurchase 消耗，
+> 次日重新购买。`unlockDate` 为客户端本地日期（解锁生效日），权益按天失效。
 
 | 字段 | 类型 | 主键 | 说明 |
 |------|------|------|------|
@@ -136,6 +140,7 @@ cloud/
 | productId | String | | jieqian_unlock（服务端白名单校验，仅此值可记账） |
 | purchaseToken | String | | **幂等去重键**（重复 record 不双记） |
 | purchaseData | String | | 华为签名原文存证（未来 verify 用） |
+| unlockDate | String | | 解锁生效日（客户端本地 YYYY-MM-DD；query 返回最近一次） |
 | createdAt | String | | 记账时间（ISO） |
 
 **索引（必须在控制台建，否则 record 幂等/query 查询报错）**：
@@ -144,6 +149,23 @@ cloud/
 **权限**：私有数据，同 Donation（World/Authenticated 无权限，
 Creator Read+Upsert，Administrator 全权限），客户端只经 `jieqian-unlock`
 云函数中转，不直连 Cloud DB。
+
+**AGC 控制台调整（每日解锁，2026-09-28）**：
+- **IAP 商品**：`jieqian_unlock` 在「应用内购买服务」中由**非消耗型改为消耗型**（¥0.9，
+  名称/ID 不变）。若控制台不允许改类型，删除后重建为消耗型商品（无已上线真实购买，
+  直接重建即可）。客户端 `IapPaymentService` 已按消耗型流程
+  （purchase → 解锁落账 → finishPurchase 消耗 → 补单 recoverPending）实现，与商品类型一致。
+  **⚠️ 重建/新配后商品状态必须「已上架」（发布）**：草稿/未发布状态下，沙箱/真机购买直接报
+  `1001860003 Invalid product information. Product info cannot be found`（商品查不到），
+  且**商品 ID 必须仍是 `jieqian_unlock`**（客户端 `UNLOCK_PRODUCT.productId` 与服务端白名单
+  都写死此值）。排查 IAP 失败先对错误码：
+  `1001860003` 商品不存在/未上架/ID 不一致 → 查商品管理；
+  `1001860007` 商品未发布/不可购买；`1001860051` 有未完成订单（走补单）；
+  `1001860050` 未登录华为帐号；`1001860054` 地区不支持。
+- **Cloud DB 表**：已导入的 SignUnlock 表需**新增 `unlockDate` 字段**（String，默认空串）——
+  控制台「Cloud DB → 对象类型 → SignUnlock → 字段」新增，或在开发者工具重新导入
+  `agc-clouddb-object-types-jieqian-unlock.json`（含新字段）。不新增该字段则
+  `record` 落库缺字段、`query` 拿不到日期（幂等/uid 索引不受影响）。
 
 ## 部署步骤
 
@@ -239,7 +261,7 @@ Creator Read+Upsert，Administrator 全权限），客户端只经 `jieqian-unlo
    | `cloud/get-leaderboard/get-leaderboard.zip` | `get-leaderboard` | [CloudService.ets:94](../entry/src/main/ets/service/CloudService.ets#L94) | 查日/周/总榜 + 今日香火人数 |
    | `cloud/wish-wall/wish-wall.zip` | `wish-wall` | [CloudService.ets:140](../entry/src/main/ets/service/CloudService.ets#L140) | 心愿墙列表/发布/还愿 |
    | `cloud/game-record-backup/game-record-backup.zip` | `game-record-backup` | [CloudService.ets:230](../entry/src/main/ets/service/CloudService.ets#L230) | 牌局记录拉取/推送备份 |
-   | `cloud/jieqian-unlock/jieqian-unlock.zip` | `jieqian-unlock` | [CloudService.ets:295](../entry/src/main/ets/service/CloudService.ets#L295)（record）/ [317](../entry/src/main/ets/service/CloudService.ets#L317)（query） | 解签买断记账（purchaseToken 幂等）/ 查解锁状态 |
+   | `cloud/jieqian-unlock/jieqian-unlock.zip` | `jieqian-unlock` | [CloudService.ets:295](../entry/src/main/ets/service/CloudService.ets#L295)（record）/ [317](../entry/src/main/ets/service/CloudService.ets#L317)（query） | 解签每日解锁记账（purchaseToken 幂等，落 unlockDate）/ 查最近解锁日期 |
    | `cloud/donation-record/donation-record.zip` | `donation-record` | —（已停止调用，保留不下架） | 打赏记账（purchaseToken 幂等）/ 查累计功德 |
 
    **每个函数的创建参数**：
@@ -279,13 +301,13 @@ Creator Read+Upsert，Administrator 全权限），客户端只经 `jieqian-unlo
      `{ "action": "query", "__uid": "test123" }` 应返回 `{ "totalAmount": 6, "totalCount": 1 }`。
      ⚠️ 测完在 Cloud DB 控制台定点删 `uid=test123` 的 Donation/UserMerit 记录
      （cleanup 脚本不清这两张表，防误删真实打赏）。
-   - `jieqian-unlock` 测试入参（record）：
-     `{ "action": "record", "__uid": "test123", "productId": "jieqian_unlock", "purchaseToken": "test_unlock_tok_1", "purchaseData": "{}", "orderId": "test_unlock_1" }`
-     期望返回：`{ "code": 0, "data": { "unlocked": true } }`，且 Cloud DB
-     `SignUnlock` 表多一条 `id=test_unlock_1`。
-     **再传一遍完全相同的入参**（幂等验证）：仍返回 `{ "unlocked": true }`，
+   - `jieqian-unlock` 测试入参（record，每日解锁）：
+     `{ "action": "record", "__uid": "test123", "productId": "jieqian_unlock", "purchaseToken": "test_unlock_tok_1", "purchaseData": "{}", "orderId": "test_unlock_1", "unlockDate": "2026-09-28" }`
+     期望返回：`{ "code": 0, "data": { "unlockDate": "2026-09-28" } }`，且 Cloud DB
+     `SignUnlock` 表多一条 `id=test_unlock_1`（含 `unlockDate=2026-09-28`）。
+     **再传一遍完全相同的入参**（幂等验证）：仍返回 `{ "unlockDate": "2026-09-28" }`，
      `SignUnlock` 表仍只有一条——不双记。再测 query：
-     `{ "action": "query", "__uid": "test123" }` 应返回 `{ "unlocked": true }`。
+     `{ "action": "query", "__uid": "test123" }` 应返回 `{ "unlockDate": "2026-09-28" }`。
      ⚠️ 测完在 Cloud DB 控制台定点删 `uid=test123` 的 SignUnlock 记录。
    - 报 401 `client token auth failed` → 凭证问题（见下「凭证说明」）。
    - 报 `3037003 primary key missing` → 对象类型未导入或字段名不符。
